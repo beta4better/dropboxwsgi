@@ -43,6 +43,11 @@ class AppImpl(object):
         with open(os.path.join(self.md_cache_dir, *path[1:].split(u'/')), 'rb') as f:
             return json.load(f)
 
+    def drop_cached_data(self, path):
+        os_path_pieces = path[1:].split(u'/')
+        for parent in (self.md_cache_dir, self.cache_dir):
+            os.unlink(os.path.join(parent, *os_path_pieces))
+
     def read_cached_data(self, path):
         with open(os.path.join(self.md_cache_dir, *path[1:].split(u'/')), 'rb') as f:
             return (open(os.path.join(self.cache_dir, *path[1:].split(u'/')), 'rb'),
@@ -99,38 +104,47 @@ def make_app(config, impl):
         sess.set_token(*at)
 
     client = dropbox.client.DropboxClient(sess)
+
+
+    def link_app(environ, start_response):
+        # this is the pingback
+        if environ['PATH_INFO'] == finish_link_path:
+            query_args = parse_qs(environ['QUERY_STRING'])
+
+            oauth_token = query_args['oauth_token'][0]
+            if oauth_token != sess.request_token.key:
+                raise Exception("Non-matching request token")
+
+            try:
+                at = sess.obtain_access_token()
+            except Exception:
+                # request token was bad, link again
+                sess.request_token = None
+            else:
+                impl.write_access_token(at.key, at.secret)
+                start_response('200 OK', [('Content-type', 'text/plain')])
+                return ['Server is now Linked! Browse at will']
+
+        # check if we have a request_token lying around already
+        if not sess.request_token:
+            sess.obtain_request_token()
+
+        auth_url = sess.build_authorize_url(sess.request_token,
+                                            http_root + finish_link_path)
+        start_response('302 FOUND', [('Content-type', 'text/plain'),
+                                     ('Location', auth_url)])
+        return ['Redirecting...']
+
+    def not_found_response(environ, start_response):
+        start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
+        return ['Not Found!']
+
     def app(environ, start_response):
         path = environ['PATH_INFO']
 
         # checked if we are linked yet
         if not sess.is_linked():
-            # this is the pingback
-            if path == finish_link_path:
-                query_args = parse_qs(environ['QUERY_STRING'])
-
-                oauth_token = query_args['oauth_token'][0]
-                if oauth_token != sess.request_token.key:
-                    raise Exception("Non-matching request token")
-
-                try:
-                    at = sess.obtain_access_token()
-                except Exception:
-                    # request token was bad, link again
-                    sess.request_token = None
-                else:
-                    impl.write_access_token(at.key, at.secret)
-                    start_response('200 OK', [('Content-type', 'text/plain')])
-                    return ['Server is now Linked! Browse at will']
-
-            # check if we have a request_token lying around already
-            if not sess.request_token:
-                sess.obtain_request_token()
-
-            auth_url = sess.build_authorize_url(sess.request_token,
-                                                http_root + finish_link_path)
-            start_response('302 FOUND', [('Content-type', 'text/plain'),
-                                         ('Location', auth_url)])
-            return ['Redirecting...']
+            return link_app(environ, start_response)
 
         try:
             md2 = impl.read_cached_metadata(path)
@@ -143,12 +157,17 @@ def make_app(config, impl):
             # TODO
             # catch specific not found error
             # otherwise, retry once
-            start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
-            return ['Not Found!']
+            is_deleted = True
+        else:
+            is_deleted = md.get('is_deleted')
 
-        if md.get('is_deleted'):
-            start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
-            return ['Not Found!']
+        if is_deleted:
+            try:
+                impl.drop_cached_data(path)
+            except Exception:
+                traceback.print_exc()
+
+            return not_found_response(environ, start_response)
         elif md['is_dir']:
             start_response('200 OK', [('Content-type', 'text/plain')])
             return ['yo\n']
@@ -186,24 +205,40 @@ def make_app(config, impl):
                         fwrapper = ReadableWrapper
                     return fwrapper(f, block_size)
 
-            res, md = client.get_file_and_metadata(path, rev=md.get('rev'))
-            def gen():
-                try:
-                    while True:
-                        ret = res.read(block_size)
-                        if not ret:
-                            break
-                        yield ret
-                finally:
-                    res.close()
+            try:
+                res, md = client.get_file_and_metadata(path, rev=md.get('rev'))
+            except Exception:
+                # TODO
+                # catch specific not found error
+                # otherwise, retry once
+                return not_found_response(environ, start_response)
+            else:
+                def gen():
+                    try:
+                        while True:
+                            ret = res.read(block_size)
+                            if not ret:
+                                break
+                            yield ret
+                    finally:
+                        res.close()
 
-            def wrap(gen):
-                with impl.write_cached_data(path, md) as f:
-                    for data in gen:
-                        f.write(data)
-                        yield data
+                def wrap(gen):
+                    try:
+                        f = impl.write_cached_data(path, md)
+                    except Exception:
+                        # couldn't write, just stream out the data
+                        for data in gen:
+                            yield data
+                    else:
+                        try:
+                            for data in gen:
+                                f.write(data)
+                                yield data
+                        finally:
+                            f.close()
 
-            return wrap(gen())
+                return wrap(gen())
 
     return app
 
