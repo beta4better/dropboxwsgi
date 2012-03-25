@@ -1,4 +1,7 @@
+import errno
+import logging
 import os
+import pprint
 import sqlite3
 import tempfile
 import traceback
@@ -13,8 +16,13 @@ from wsgiref.simple_server import make_server
 
 import dropbox
 
+from dropbox.rest import ErrorResponse
+
+logger = logging.getLogger(__name__)
+
 class AppImpl(object):
     def __init__(self, app_dir):
+        # TODO: raise error if app_dir is not ASCII
         app_dir = app_dir
         self.tmp_dir = os.path.join(app_dir, 'tmp')
         self.cache_dir = os.path.join(app_dir, 'data')
@@ -40,21 +48,26 @@ class AppImpl(object):
             json.dump((key, secret), f)
 
     def read_cached_metadata(self, path):
-        with open(os.path.join(self.md_cache_dir, *path[1:].split(u'/')), 'rb') as f:
+        with open(os.path.join(self.md_cache_dir, *path[1:].split('/')), 'rb') as f:
             return json.load(f)
 
     def drop_cached_data(self, path):
-        os_path_pieces = path[1:].split(u'/')
+        os_path_pieces = path[1:].split('/')
         for parent in (self.md_cache_dir, self.cache_dir):
-            os.unlink(os.path.join(parent, *os_path_pieces))
+            toremove = os.path.join(parent, *os_path_pieces)
+            try:
+                os.unlink(toremove)
+            except OSError, e:
+                if e.errno != errno.ENOENT:
+                    logger.exception("Couldn't remove: %r", toremove)
 
     def read_cached_data(self, path):
-        with open(os.path.join(self.md_cache_dir, *path[1:].split(u'/')), 'rb') as f:
-            return (open(os.path.join(self.cache_dir, *path[1:].split(u'/')), 'rb'),
+        with open(os.path.join(self.md_cache_dir, *path[1:].split('/')), 'rb') as f:
+            return (open(os.path.join(self.cache_dir, *path[1:].split('/')), 'rb'),
                     json.load(f))
 
     def write_cached_data(self, path, md):
-        os_path_pieces = path[1:].split(u'/')
+        os_path_pieces = path[1:].split('/')
         s1 = self
         class NoOp(object):
             def __init__(self):
@@ -93,7 +106,6 @@ def make_app(config, impl):
                                           config['consumer_secret'],
                                           config['access_type'])
 
-
     # get token
     try:
         at = impl.read_access_token()
@@ -104,7 +116,6 @@ def make_app(config, impl):
         sess.set_token(*at)
 
     client = dropbox.client.DropboxClient(sess)
-
 
     def link_app(environ, start_response):
         # this is the pingback
@@ -139,41 +150,86 @@ def make_app(config, impl):
         start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
         return ['Not Found!']
 
-    def app(environ, start_response):
-        path = environ['PATH_INFO']
+    def not_modified_response(environ, start_response):
+        start_response('304 NOT MODIFIED', [('Content-type', 'text/plain')])
+        return ['Not Modified!']
 
+    def app(environ, start_response):
         # checked if we are linked yet
         if not sess.is_linked():
             return link_app(environ, start_response)
 
+        # turn path into unicode
+        for enc in ['utf8', 'latin1']:
+            try:
+                path = environ['PATH_INFO'].decode('utf8')
+            except UnicodeDecodeError:
+                pass
+            else:
+                break
+        else:
+            return not_found_response(environ, start_response)
+
+        # TODO: take E-Tag from header
         try:
-            md2 = impl.read_cached_metadata(path)
-        except Exception:
-            md2 = {}
+            etag = environ['HTTP_IF_NONE_MATCH']
+        except KeyError:
+            kwargs = {}
+            etag = None
+        else:
+            kwargs = ({'hash' : etag[1:]}
+                      if etag[0] == 'd' else
+                      {})
 
         try:
-            md = client.metadata(path, hash=md2.get('hash'))
-        except Exception:
-            # TODO
-            # catch specific not found error
-            # otherwise, retry once
+            md = client.metadata(path, **kwargs)
+        except Exception, e:
+            if isinstance(e, ErrorResponse):
+                if e.status == 304:
+                    return not_modified_response(environ, start_response)
+                elif e.status != 404:
+                    logger.exception("API Error")
+            else:
+                logger.exception("API Error")
             is_deleted = True
         else:
             is_deleted = md.get('is_deleted')
 
         if is_deleted:
-            try:
-                impl.drop_cached_data(path)
-            except Exception:
-                traceback.print_exc()
-
             return not_found_response(environ, start_response)
         elif md['is_dir']:
-            start_response('200 OK', [('Content-type', 'text/plain')])
-            return ['yo\n']
+            # it's a directory, we have to re-retrieve
+            # but we should check if the file is the same before
+            # sending out directory contents
+            #md = client.metadata(path)
+            start_response('200 OK', [('Content-type', 'text/plain'),
+                                      ('ETag', 'd' + md['hash'])])
+            return [pprint.pformat(md)]
+        elif etag is not None and md.get('rev') == etag[1:]:
+            return not_modified_response(environ, start_response)
         else:
-            start_response('200 OK', [('Content-type', md['mime_type'].encode('utf8'))])
+            res = client.get_file(path, rev=md.get('rev'))
+            def gen():
+                try:
+                    while True:
+                        ret = res.read(block_size)
+                        if not ret:
+                            break
+                        yield ret
+                finally:
+                    res.close()
 
+            start_response('200 OK', [('Content-type', md['mime_type'].encode('utf8')),
+                                      ("Cache-Control", "public, max-age=3600"),
+                                      ('Content-Length', str(md['bytes'])),
+                                      ('ETag', '"f' + md['rev'].encode('utf8') + '"')])
+            return gen()
+    return app
+
+def make_caching(impl):
+    def wrapper(app):
+        @functools.wraps(app)
+        def new_app(environ, start_response):
             # check if md matches cached version
             if md2.get('rev') == md.get('rev'):
                 try:
@@ -205,42 +261,24 @@ def make_app(config, impl):
                         fwrapper = ReadableWrapper
                     return fwrapper(f, block_size)
 
-            try:
-                res, md = client.get_file_and_metadata(path, rev=md.get('rev'))
-            except Exception:
-                # TODO
-                # catch specific not found error
-                # otherwise, retry once
-                return not_found_response(environ, start_response)
-            else:
-                def gen():
+            def wrap(gen):
+                try:
+                    f = impl.write_cached_data(path, md)
+                except Exception:
+                    # couldn't write, just stream out the data
+                    for data in gen:
+                        yield data
+                else:
                     try:
-                        while True:
-                            ret = res.read(block_size)
-                            if not ret:
-                                break
-                            yield ret
-                    finally:
-                        res.close()
-
-                def wrap(gen):
-                    try:
-                        f = impl.write_cached_data(path, md)
-                    except Exception:
-                        # couldn't write, just stream out the data
                         for data in gen:
+                            f.write(data)
                             yield data
-                    else:
-                        try:
-                            for data in gen:
-                                f.write(data)
-                                yield data
-                        finally:
-                            f.close()
+                    finally:
+                        f.close()
 
-                return wrap(gen())
-
-    return app
+            return wrap(gen())
+        return new_app
+    return wrapper
 
 if __name__ == "__main__":
     config = dict(consumer_key='iodc7pv1hlolg5a',
@@ -249,5 +287,6 @@ if __name__ == "__main__":
                   http_root='http://localhost:8080',
                   app_dir='/home/rian/.dropboxhttp')
 
+    logging.basicConfig(level=logging.DEBUG)
     impl = AppImpl(config['app_dir'])
     make_server('', 8080, make_app(config, impl)).serve_forever()
