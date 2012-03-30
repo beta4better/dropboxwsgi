@@ -234,8 +234,8 @@ def make_app(config, impl):
         if (if_none_match is not None and
             if_none_match is not MATCH_ANY and
             len(if_none_match) == 1 and
-            if_none_match[0][0] == 'd'):
-            kw = {'hash' : if_none_match[1:]}
+            if_none_match[0].startswith('"d')):
+            kw = {'hash' : if_none_match[0][2:-1]}
         else:
             kw = {}
 
@@ -285,6 +285,7 @@ a:visited {color: #48468F;}
 a:hover, a:focus {text-decoration: underline; color: red;}
 body {background-color: #F5F5F5;}
 table {margin-left: 12px;}
+h1 { font-size: -1;}
 th, td { font: 90%% monospace; text-align: left;}
 th { font-weight: bold; padding-right: 14px; padding-bottom: 3px;}
 td {padding-right: 14px;}
@@ -322,7 +323,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                     yield '<td class="n"><a href="%s">%s%s</a></td>\n' % (entry['path'], name,
                                                                         "/" if entry['is_dir'] else "")
                     yield '<td class="m">%s</td>\n' % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))
-                    yield '<td class="s">%s</td>\n' % ('-&nbsp;&nbsp;' if entry['is_dir'] else entry['size'])
+                    yield '<td class="s">%s</td>\n' % ('- &nbsp;' if entry['is_dir'] else entry['size'])
                     yield '<td class="t">%s</td>\n' % ('Directory' if entry['is_dir'] else entry['mime_type'])
                     yield '</tr>\n'
 
