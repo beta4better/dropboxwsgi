@@ -271,7 +271,7 @@ def make_app(config, impl):
         if md['is_dir']:
             current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
             current_modified_date = None
-            def toret(environ, start_response):
+            def toret1(environ, start_response):
                 start_response('200 OK', [('Content-type', 'text/html'),
                                           ('ETag', current_etag)])
                 yield '''<!DOCTYPE html>
@@ -323,10 +323,11 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
 <div class="foot">%(server_software)s</div>
 </body>
 </html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
+            toret = toret2
         else:
             current_etag = '"_%s"' % md['rev'].encode('utf8')
             current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
-            def toret(environ, start_response):
+            def toret3(environ, start_response):
                 dropbox_date = md['modified'].encode('utf8')
                 last_modified_date = posix_to_http_date(dropbox_date_to_posix(dropbox_date))
                 start_response('200 OK', [('Content-Type', md['mime_type'].encode('utf8')),
@@ -348,6 +349,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                         res.close()
 
                 return gen()
+            toret = toret3
 
         # it's nice to have this as a separate function
         def http_cache_logic(current_etag, current_modified_date, if_match, if_none_match, last_modified_since):
@@ -388,60 +390,6 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
             return toret(environ, start_response)
 
     return app
-
-def make_caching(impl):
-    def wrapper(app):
-        @functools.wraps(app)
-        def new_app(environ, start_response):
-            # check if md matches cached version
-            if md2.get('rev') == md.get('rev'):
-                try:
-                    f, md2 = impl.read_cached_data(path)
-                except Exception:
-                    class Closeable(object):
-                        def close(self):
-                            pass
-                    f = Closeable()
-                    md2 = {}
-
-                if md2.get('rev') != md.get('rev'):
-                    # the stored file has changed in the interim
-                    # close the file and fallthrough
-                    f.close()
-                else:
-                    try:
-                        fwrapper = environ['wsgi.file_wrapper']
-                    except KeyError:
-                        class ReadableWrapper(object):
-                            def __init__(self, f, block_size):
-                                self.f = f
-                                self.block_size = block_size
-                            def close(self):
-                                self.f.close()
-                            def __iter__(self):
-                                return iter(functools.partial(self.f.read, self.block_size), '')
-
-                        fwrapper = ReadableWrapper
-                    return fwrapper(f, block_size)
-
-            def wrap(gen):
-                try:
-                    f = impl.write_cached_data(path, md)
-                except Exception:
-                    # couldn't write, just stream out the data
-                    for data in gen:
-                        yield data
-                else:
-                    try:
-                        for data in gen:
-                            f.write(data)
-                            yield data
-                    finally:
-                        f.close()
-
-            return wrap(gen())
-        return new_app
-    return wrapper
 
 if __name__ == "__main__":
     config = dict(consumer_key='iodc7pv1hlolg5a',
