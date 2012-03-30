@@ -1,5 +1,7 @@
 import functools
 
+from wsgiref.util import FileWrapper
+
 def make_caching(impl):
     def wrapper(app):
         @functools.wraps(app)
@@ -67,19 +69,7 @@ def make_caching(impl):
             res = app(environ, my_start_response)
             if top_res[0].startswith('304'):
                 # send out saved data
-                try:
-                    fwrapper = environ['wsgi.file_wrapper']
-                except KeyError:
-                    class ReadableWrapper(object):
-                        def __init__(self, f, block_size):
-                            self.f = f
-                            self.block_size = block_size
-                        def close(self):
-                            self.f.close()
-                        def __iter__(self):
-                            return iter(functools.partial(self.f.read, self.block_size), '')
-
-                    fwrapper = ReadableWrapper
+                fwrapper = environ.get('wsgi.file_wrapper', FileWrapper)
                 block_size = 16 * 1024
                 toret = fwrapper(impl.read_cached_data(path), block_size)
             elif writer[0] is not None:
