@@ -323,11 +323,11 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
 <div class="foot">%(server_software)s</div>
 </body>
 </html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
-            toret = toret2
+            toret = toret1
         else:
             current_etag = '"_%s"' % md['rev'].encode('utf8')
             current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
-            def toret3(environ, start_response):
+            def toret2(environ, start_response):
                 dropbox_date = md['modified'].encode('utf8')
                 last_modified_date = posix_to_http_date(dropbox_date_to_posix(dropbox_date))
                 start_response('200 OK', [('Content-Type', md['mime_type'].encode('utf8')),
@@ -349,7 +349,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                         res.close()
 
                 return gen()
-            toret = toret3
+            toret = toret2
 
         # it's nice to have this as a separate function
         def http_cache_logic(current_etag, current_modified_date, if_match, if_none_match, last_modified_since):
