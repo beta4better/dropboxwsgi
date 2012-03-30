@@ -20,6 +20,7 @@ import dropbox
 from dropbox.rest import ErrorResponse
 
 logger = logging.getLogger(__name__)
+
 HTTP_PRECONDITION_FAILED = 412
 HTTP_NOT_MODIFIED = 304
 HTTP_OK = 200
@@ -448,7 +449,7 @@ if __name__ == "__main__":
                   access_type='app_folder',
                   allow_directory_listing=True,
                   http_root='http://localhost:8080',
-                  app_dir='/home/rian/.dropboxhttp')
+                  app_dir=os.path.expanduser('~/.dropboxhttp'))
 
     logging.basicConfig(level=logging.DEBUG)
     impl = AppImpl(config['app_dir'])
