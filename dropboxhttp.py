@@ -227,6 +227,8 @@ def make_app(config, impl):
         if_match = get_match('HTTP_IF_MATCH')
         if_none_match = get_match('HTTP_IF_NONE_MATCH')
 
+        # generate the kw args for metadata()
+        # based on the passed in etag
         if (if_none_match is not None and
             if_none_match is not MATCH_ANY and
             len(if_none_match) == 1 and
@@ -235,8 +237,11 @@ def make_app(config, impl):
         else:
             kw = {}
 
+        allow_directory_listing = config.get('allow_directory_listing', True)
+
+        # get the metadata for this call
         try:
-            md = client.metadata(path, **kw)
+            md = client.metadata(path, list=allow_directory_listing, **kw)
         except Exception, e:
             if isinstance(e, ErrorResponse):
                 if e.status == 304:
@@ -252,14 +257,98 @@ def make_app(config, impl):
         else:
             is_deleted = md.get('is_deleted')
 
-        try:
-            last_modified_since = environ['HTTP_IF_MODIFIED_SINCE']
-        except KeyError:
-            last_modified_since = None
+        if is_deleted:
+            # if the file is deleted just cancel early
+            return not_found_response(environ, start_response)
+
+        if md['is_dir'] and not allow_directory_listing:
+            # if we're not allowing directory listings
+            # just exit early
+            start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
+            return ['Forbidden']
+
+        if md['is_dir']:
+            current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
+            current_modified_date = None
+            def toret(environ, start_response):
+                start_response('200 OK', [('Content-type', 'text/html'),
+                                          ('ETag', current_etag)])
+                yield '''<!DOCTYPE html>
+<html>
+<head>
+<title>Index of %(path)s</title>
+<style type="text/css">
+a, a:active {text-decoration: none; color: blue;}
+a:visited {color: #48468F;}
+a:hover, a:focus {text-decoration: underline; color: red;}
+body {background-color: #F5F5F5;}
+h1 {margin-bottom: 12px;}
+table {margin-left: 12px;}
+th, td { font: 90%% monospace; text-align: left;}
+th { font-weight: bold; padding-right: 14px; padding-bottom: 3px;}
+td {padding-right: 14px;}
+td.s, th.s {text-align: right;}
+div.list { background-color: white; border-top: 1px solid #646464; border-bottom: 1px solid #646464; padding-top: 10px; padding-bottom: 14px;}
+div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
+</style>
+</head>
+<body>
+<h1>Index of %(path)s</h1>
+<div class="list">
+<table summary="Directory Listing" cellpadding="0" cellspacing="0">
+<thead>
+<tr>
+<th class="n">Name</th>
+<th class="m">Last Modified</th>
+<th class="s">Size</th>
+<th class="t">Type</th>
+</tr>
+</thead>
+<tbody>
+''' % dict(path=md['path'])
+                for entry in md['contents']:
+                    name = entry['path'].rsplit('/', 1)[1]
+                    yield '<tr>\n'
+                    yield '<td class="n"><a href="%s">%s%s</a></td>\n' % (entry['path'], name,
+                                                                        "/" if entry['is_dir'] else "")
+                    yield '<td class="m">%s</td>\n' % entry['modified']
+                    yield '<td class="s">%s</td>\n' % entry['size']
+                    yield '<td class="t">%s</td>\n' % ('Directory' if entry['is_dir'] else entry['mime_type'])
+                    yield '</tr>\n'
+
+                yield '''</tbody>
+</table>
+</div>
+<div class="foot">%(server_software)s</div>
+</body>
+</html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
         else:
-            last_modified_since = http_date_to_posix(last_modified_since)
+            current_etag = '"_%s"' % md['rev'].encode('utf8')
+            current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
+            def toret(environ, start_response):
+                dropbox_date = md['modified'].encode('utf8')
+                last_modified_date = posix_to_http_date(dropbox_date_to_posix(dropbox_date))
+                start_response('200 OK', [('Content-Type', md['mime_type'].encode('utf8')),
+                                          ('Cache-Control', 'public, no-cache'),
+                                          ('Content-Length', str(md['bytes'])),
+                                          ('Date', posix_to_http_date()),
+                                          ('ETag', current_etag),
+                                          ('Last-Modified', last_modified_date)])
 
+                res = client.get_file(path, rev=md['rev'])
+                def gen():
+                    try:
+                        while True:
+                            ret = res.read(block_size)
+                            if not ret:
+                                break
+                            yield ret
+                    finally:
+                        res.close()
 
+                return gen()
+
+        # it's nice to have this as a separate function
         def http_cache_logic(current_etag, current_modified_date, if_match, if_none_match, last_modified_since):
             logger.debug("current_etag: %r", current_etag)
             logger.debug("current_modified_date: %r", current_modified_date)
@@ -281,40 +370,12 @@ def make_app(config, impl):
             logger.debug("return ok")
             return HTTP_OK
 
-        if is_deleted:
-            return not_found_response(environ, start_response)
-
-        if md['is_dir']:
-            current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
-            current_modified_date = None
-            def toret(environ, start_response):
-                start_response('200 OK', [('Content-type', 'text/plain'),
-                                          ('ETag', current_etag)])
-                return [pprint.pformat(md)]
+        try:
+            last_modified_since = environ['HTTP_IF_MODIFIED_SINCE']
+        except KeyError:
+            last_modified_since = None
         else:
-            current_etag = '"_%s"' % md['rev'].encode('utf8')
-            current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
-            def toret(environ, start_response):
-                res = client.get_file(path, rev=md['rev'])
-                def gen():
-                    try:
-                        while True:
-                            ret = res.read(block_size)
-                            if not ret:
-                                break
-                            yield ret
-                    finally:
-                        res.close()
-
-                dropbox_date = md['modified'].encode('utf8')
-                last_modified_date = posix_to_http_date(dropbox_date_to_posix(dropbox_date))
-                start_response('200 OK', [('Content-type', md['mime_type'].encode('utf8')),
-                                          ('Cache-Control', 'public, no-cache'),
-                                          ('Content-Length', str(md['bytes'])),
-                                          ('Date', posix_to_http_date()),
-                                          ('ETag', current_etag),
-                                          ('Last-Modified', last_modified_date)])
-                return gen()
+            last_modified_since = http_date_to_posix(last_modified_since)
 
         return_code = http_cache_logic(current_etag, current_modified_date,
                                        if_match, if_none_match, last_modified_since)
@@ -385,6 +446,7 @@ if __name__ == "__main__":
     config = dict(consumer_key='iodc7pv1hlolg5a',
                   consumer_secret='bqynhr0h1ivucm5',
                   access_type='app_folder',
+                  allow_directory_listing=True,
                   http_root='http://localhost:8080',
                   app_dir='/home/rian/.dropboxhttp')
 
