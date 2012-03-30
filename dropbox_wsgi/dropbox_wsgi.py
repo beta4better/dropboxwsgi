@@ -14,6 +14,7 @@ except Exception:
 
 from cgi import parse_qs
 from wsgiref.simple_server import make_server
+from wsgiref.validate import validator
 
 import dropbox
 
@@ -189,8 +190,8 @@ def make_app(config, impl):
         return ['Not Found!']
 
     def not_modified_response(environ, start_response):
-        start_response('304 NOT MODIFIED', [('Content-type', 'text/plain')])
-        return ['Not Modified!']
+        start_response('304 NOT MODIFIED', [])
+        return []
 
     def precondition_failed_response(environ, start_response):
         start_response('412 PRECONDITION FAILED', [('Content-type', 'text/plain')])
@@ -283,7 +284,6 @@ a, a:active {text-decoration: none; color: blue;}
 a:visited {color: #48468F;}
 a:hover, a:focus {text-decoration: underline; color: red;}
 body {background-color: #F5F5F5;}
-h1 {margin-bottom: 12px;}
 table {margin-left: 12px;}
 th, td { font: 90%% monospace; text-align: left;}
 th { font-weight: bold; padding-right: 14px; padding-bottom: 3px;}
@@ -307,13 +307,22 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
 </thead>
 <tbody>
 ''' % dict(path=md['path'])
+
+                if md['path'] != u'/':
+                    yield '<tr>\n'
+                    yield '<td class="n"><a href="../">Parent Directory/</a></td>\n'
+                    yield '<td class="m"></td>\n'
+                    yield '<td class="s">-&nbsp;&nbsp;</td>\n'
+                    yield '<td class="t">Directory</td>\n'
+                    yield '</tr>\n'
+
                 for entry in md['contents']:
                     name = entry['path'].rsplit('/', 1)[1]
                     yield '<tr>\n'
                     yield '<td class="n"><a href="%s">%s%s</a></td>\n' % (entry['path'], name,
                                                                         "/" if entry['is_dir'] else "")
-                    yield '<td class="m">%s</td>\n' % entry['modified']
-                    yield '<td class="s">%s</td>\n' % entry['size']
+                    yield '<td class="m">%s</td>\n' % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))
+                    yield '<td class="s">%s</td>\n' % ('-&nbsp;&nbsp;' if entry['is_dir'] else entry['size'])
                     yield '<td class="t">%s</td>\n' % ('Directory' if entry['is_dir'] else entry['mime_type'])
                     yield '</tr>\n'
 
@@ -401,4 +410,4 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
     impl = AppImpl(config['app_dir'])
-    make_server('', 8080, make_app(config, impl)).serve_forever()
+    make_server('', 8080, validator(make_app(config, impl))).serve_forever()
