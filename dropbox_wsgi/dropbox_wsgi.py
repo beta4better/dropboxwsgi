@@ -307,13 +307,22 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
 </thead>
 <tbody>
 ''' % dict(path=md['path'])
+
+                if md['path'] != u'/':
+                    yield '<tr>\n'
+                    yield '<td class="n"><a href="../">Parent Directory/</a></td>\n'
+                    yield '<td class="m"></td>\n'
+                    yield '<td class="s">-&nbsp;&nbsp;</td>\n'
+                    yield '<td class="t">Directory</td>\n'
+                    yield '</tr>\n'
+
                 for entry in md['contents']:
                     name = entry['path'].rsplit('/', 1)[1]
                     yield '<tr>\n'
                     yield '<td class="n"><a href="%s">%s%s</a></td>\n' % (entry['path'], name,
                                                                         "/" if entry['is_dir'] else "")
-                    yield '<td class="m">%s</td>\n' % entry['modified']
-                    yield '<td class="s">%s</td>\n' % entry['size']
+                    yield '<td class="m">%s</td>\n' % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))
+                    yield '<td class="s">%s</td>\n' % ('-&nbsp;&nbsp;' if entry['is_dir'] else entry['size'])
                     yield '<td class="t">%s</td>\n' % ('Directory' if entry['is_dir'] else entry['mime_type'])
                     yield '</tr>\n'
 
