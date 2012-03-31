@@ -73,6 +73,74 @@ class FileSystemStorage(object):
         with open(self.access_token_path, 'wb') as f:
             json.dump((key, secret), f)
 
+def _render_directory_contents(environ, md):
+    ret_path = md['path'].encode('utf8')
+    yield '''<!DOCTYPE html>
+<html>
+<head>
+<title>Index of %(path)s%(trail)s</title>
+<style type="text/css">
+a, a:active {text-decoration: none; color: blue;}
+a:visited {color: #48468F;}
+a:hover, a:focus {text-decoration: underline; color: red;}
+body {background-color: #F5F5F5;}
+table {margin-left: 12px;}
+h1 { font-size: -1;}
+th, td { font: 90%% monospace; text-align: left;}
+th { font-weight: bold; padding-right: 14px; padding-bottom: 3px;}
+td {padding-right: 14px;}
+td.s, th.s {text-align: right;}
+div.list { background-color: white; border-top: 1px solid #646464; border-bottom: 1px solid #646464; padding-top: 10px; padding-bottom: 14px;}
+div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
+</style>
+</head>
+<body>
+<h1>Index of %(path)s%(trail)s</h1>
+<div class="list">
+<table summary="Directory Listing" cellpadding="0" cellspacing="0">
+<thead>
+<tr>
+<th class="n">Name</th>
+<th class="m">Last Modified</th>
+<th class="s">Size</th>
+<th class="t">Type</th>
+</tr>
+</thead>
+<tbody>
+''' % dict(path=ret_path, trail="" if ret_path[-1] == "/" else "/")
+
+    if md['path'] != u'/':
+        yield '<tr>\n'
+        yield '<td class="n"><a href="../">Parent Directory</a>/</td>\n'
+        yield '<td class="m"></td>\n'
+        yield '<td class="s">-&nbsp;&nbsp;</td>\n'
+        yield '<td class="t">Directory</td>\n'
+        yield '</tr>\n'
+
+    for entry in md['contents']:
+        enc_path = entry['path'].encode('utf8')
+        name = enc_path.rsplit('/', 1)[1]
+        trail = "/" if entry['is_dir'] else ""
+        yield '<tr>\n'
+        yield ('<td class="n"><a href="%s%s">%s</a>%s</td>\n'
+               % (enc_path, trail, name, trail))
+        yield ('<td class="m">%s</td>\n'
+               % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified']))))
+        yield ('<td class="s">%s</td>\n'
+               % ('- &nbsp;'
+                  if entry['is_dir'] else
+                  entry['size'].encode('utf8')))
+        yield ('<td class="t">%s</td>\n'
+               % ('Directory' if entry['is_dir'] else entry['mime_type'].encode('utf8')))
+        yield '</tr>\n'
+
+    yield '''</tbody>
+</table>
+</div>
+<div class="foot">%(server_software)s</div>
+</body>
+</html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
+
 def make_app(config, impl):
     http_root = config['http_root']
     finish_link_path = '/finish_link'
@@ -142,7 +210,7 @@ def make_app(config, impl):
         # turn path into unicode
         for enc in ['utf8', 'latin1']:
             try:
-                path = environ['PATH_INFO'].decode('utf8')
+                path = environ['PATH_INFO'].decode(enc)
             except UnicodeDecodeError:
                 pass
             else:
@@ -200,76 +268,27 @@ def make_app(config, impl):
             # if the file is deleted just cancel early
             return not_found_response(environ, start_response)
 
-        if md['is_dir'] and not allow_directory_listing:
-            # if we're not allowing directory listings
-            # just exit early
-            start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
-            return ['Forbidden']
-
         if md['is_dir']:
+            if path[-1] != u"/":
+                start_response('301 MOVED PERMANENTLY',
+                               [('Location', '%s%s/' % (http_root, path.encode('utf8'))),
+                                ('Content-Type', 'text/plain'),
+                                ('Content-Length', '0')])
+                return []
+
+            if not allow_directory_listing:
+                # if we're not allowing directory listings
+                # just exit early
+                start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
+                return ['Forbidden']
+
             current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
             current_modified_date = None
             def toret1(environ, start_response):
                 start_response('200 OK', [('Content-type', 'text/html'),
                                           ('ETag', current_etag)])
-                yield '''<!DOCTYPE html>
-<html>
-<head>
-<title>Index of %(path)s</title>
-<style type="text/css">
-a, a:active {text-decoration: none; color: blue;}
-a:visited {color: #48468F;}
-a:hover, a:focus {text-decoration: underline; color: red;}
-body {background-color: #F5F5F5;}
-table {margin-left: 12px;}
-h1 { font-size: -1;}
-th, td { font: 90%% monospace; text-align: left;}
-th { font-weight: bold; padding-right: 14px; padding-bottom: 3px;}
-td {padding-right: 14px;}
-td.s, th.s {text-align: right;}
-div.list { background-color: white; border-top: 1px solid #646464; border-bottom: 1px solid #646464; padding-top: 10px; padding-bottom: 14px;}
-div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
-</style>
-</head>
-<body>
-<h1>Index of %(path)s</h1>
-<div class="list">
-<table summary="Directory Listing" cellpadding="0" cellspacing="0">
-<thead>
-<tr>
-<th class="n">Name</th>
-<th class="m">Last Modified</th>
-<th class="s">Size</th>
-<th class="t">Type</th>
-</tr>
-</thead>
-<tbody>
-''' % dict(path=md['path'])
+                return _render_directory_contents(environ, md)
 
-                if md['path'] != u'/':
-                    yield '<tr>\n'
-                    yield '<td class="n"><a href="../">Parent Directory/</a></td>\n'
-                    yield '<td class="m"></td>\n'
-                    yield '<td class="s">-&nbsp;&nbsp;</td>\n'
-                    yield '<td class="t">Directory</td>\n'
-                    yield '</tr>\n'
-
-                for entry in md['contents']:
-                    name = entry['path'].rsplit('/', 1)[1]
-                    yield '<tr>\n'
-                    yield '<td class="n"><a href="%s">%s%s</a></td>\n' % (entry['path'], name,
-                                                                        "/" if entry['is_dir'] else "")
-                    yield '<td class="m">%s</td>\n' % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))
-                    yield '<td class="s">%s</td>\n' % ('- &nbsp;' if entry['is_dir'] else entry['size'])
-                    yield '<td class="t">%s</td>\n' % ('Directory' if entry['is_dir'] else entry['mime_type'])
-                    yield '</tr>\n'
-
-                yield '''</tbody>
-</table>
-</div>
-<div class="foot">%(server_software)s</div>
-</body>
-</html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
             toret = toret1
         else:
             current_etag = '"_%s"' % md['rev'].encode('utf8')
@@ -296,6 +315,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                         res.close()
 
                 return gen()
+
             toret = toret2
 
         # it's nice to have this as a separate function

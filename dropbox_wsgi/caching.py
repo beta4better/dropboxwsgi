@@ -1,6 +1,6 @@
 import errno
-import functools
 import itertools
+import operator
 import os
 import logging
 import shutil
@@ -53,11 +53,18 @@ class FileSystemCache(object):
             elif not os.path.isdir(path):
                 raise Exception("Not a directory: %r" % path)
 
-    def read_cached_etag(self, path):
+    def read_cached_headers(self, path):
         cache_path = self._generate_cache_path(path)
         self._makedirs(cache_path)
         with open(os.path.join(cache_path, self.TAG_NAME), 'rb') as f:
-            return json.load(f)
+            res = json.load(f)
+
+        try:
+            return [(k.encode('utf8'), v.encode('utf8')) for (k, v) in res]
+        except Exception:
+            logger.exception("Bad data in metadata file!")
+            self.drop_cached_data(path)
+            raise
 
     def drop_cached_data(self, path):
         shutil.rmtree(self._generate_cache_path(path))
@@ -66,7 +73,7 @@ class FileSystemCache(object):
         cache_path = self._generate_cache_path(path)
         return open(os.path.join(cache_path, self.DATA_NAME), 'rb')
 
-    def write_cached_data(self, path, etag):
+    def write_cached_data(self, path, headers):
         s1 = self
         class NoOp(object):
             def __init__(self):
@@ -87,7 +94,7 @@ class FileSystemCache(object):
                     os.rename(self.path, os.path.join(tmp_source_path, s1.DATA_NAME))
                     unlink = False
                     with open(os.path.join(tmp_source_path, s1.TAG_NAME), 'wb') as f:
-                        json.dump(etag, f)
+                        json.dump(headers, f)
 
                     cache_path = s1._generate_cache_path(path)
                     shutil.rmtree(cache_path)
@@ -108,9 +115,25 @@ class FileSystemCache(object):
 
         return NoOp()
 
+def py_methodcaller(method, *n, **kw):
+    def mc(o):
+        return getattr(o, method)(*n, **kw)
+    return mc
+
+try:
+    methodcaller = operator.methodcaller
+except AttributeError:
+    methodcaller = py_methodcaller
+
+def identity(a): return a
+
+def get_from_alist(alist, k, key=identity):
+    for (kc, vc) in alist:
+        if key(kc) == k:
+            return vc
+
 def make_caching(impl):
     def wrapper(app):
-        @functools.wraps(app)
         def new_app(environ, start_response):
             # if the client is already sending up
             # the caching headers then use that
@@ -121,16 +144,18 @@ def make_caching(impl):
             path = environ['PATH_INFO']
 
             try:
-                etag = impl.read_cached_etag(path)
-            except Exception:
-                logger.exception("Couldn't read cached data")
+                h = impl.read_cached_headers(path)
+            except Exception, e:
+                if not (isinstance(e, EnvironmentError) and e.errno == errno.ENOENT):
+                    logger.exception("Couldn't read cached data")
             else:
-                environ['HTTP_IF_NONE_MATCH'] = etag
+                etag = get_from_alist(h, 'etag', key=methodcaller('lower'))
+                if etag is not None:
+                    environ['HTTP_IF_NONE_MATCH'] = etag
 
             writer = [None]
-            def make_writer(etag):
-                yield
-                f = impl.write_cached_data(path, etag)
+            def make_writer(headers):
+                f = impl.write_cached_data(path, headers)
                 try:
                     while True:
                         data = yield
@@ -143,24 +168,21 @@ def make_caching(impl):
 
             top_res = []
             def my_start_response(code, headers):
-                top_res[:] = [code, headers]
+                top_res[:] = [code]
                 if code.startswith('304'):
-                    return start_response(code, headers)
+                    def noop(_): pass
+                    return noop
                 else:
                     etag = None
                     if code.startswith('200'):
                         # save new data with etag if it exists
-                        for h, d in headers:
-                            if h.lower() == 'etag':
-                                # save etag
-                                etag = d
-                                break
+                        etag = get_from_alist(headers, 'etag', methodcaller('lower'))
 
                     if etag is not None:
                         # they are going to pass data into this thing,
                         # save it!!
                         top_writer = start_response(code, headers)
-                        writer[0] = make_writer(etag)
+                        writer[0] = make_writer(headers)
                         writer[0].next()
 
                         def new_writer(data):
@@ -173,11 +195,14 @@ def make_caching(impl):
 
             res = app(environ, my_start_response)
             if top_res[0].startswith('304'):
+                logger.debug("Cache hit")
                 # send out saved data
+                start_response('200 OK', h)
                 fwrapper = environ.get('wsgi.file_wrapper', FileWrapper)
                 block_size = 16 * 1024
                 toret = fwrapper(impl.read_cached_data(path), block_size)
             elif writer[0] is not None:
+                logger.debug("Cache miss")
                 # handle the rest of data for saving
                 def better_res():
                     for d in res:
