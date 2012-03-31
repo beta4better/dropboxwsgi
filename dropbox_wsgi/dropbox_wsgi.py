@@ -134,12 +134,15 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                % ('Directory' if entry['is_dir'] else entry['mime_type'].encode('utf8')))
         yield '</tr>\n'
 
+    ss = environ.get('SERVER_SOFTWARE', '')
+    if ss:
+        ss = ' ' + ss
     yield '''</tbody>
 </table>
 </div>
-<div class="foot">%(server_software)s</div>
+<div class="foot">DropboxHTTP/1.0%(server_software)s</div>
 </body>
-</html>''' % dict(server_software=environ.get('SERVER_SOFTWARE', 'Dropbox HTTP/1.0'))
+</html>''' % dict(server_software=ss)
 
 def make_app(config, impl):
     http_root = config['http_root']

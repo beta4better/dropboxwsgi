@@ -66,7 +66,11 @@ class FileSystemCache(object):
             raise
 
     def drop_cached_data(self, path):
-        shutil.rmtree(self._generate_cache_path(path))
+        try:
+            shutil.rmtree(self._generate_cache_path(path))
+        except EnvironmentError, e:
+            if e.errno != errno.ENOENT:
+                raise
 
     def read_cached_data(self, path):
         cache_path = self._generate_cache_path(path)
@@ -96,7 +100,13 @@ class FileSystemCache(object):
                         json.dump(headers, f)
 
                     cache_path = s1._generate_cache_path(path)
-                    shutil.rmtree(cache_path)
+                    try:
+                        shutil.rmtree(cache_path)
+                    except EnvironmentError, e:
+                        if e.errno != errno.ENOENT:
+                            logger.exception("Couldn't remove %r before renaming over it", cache_path)
+
+                    s1._makedirs(os.path.dirname(cache_path))
                     os.rename(tmp_source_path, cache_path)
                 finally:
                     if unlink:
