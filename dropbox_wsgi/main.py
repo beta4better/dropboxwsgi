@@ -10,6 +10,7 @@ except Exception:
     import simplejson as json
 
 from wsgiref.simple_server import make_server
+from wsgiref.validate import validator
 
 try:
     from gevent import pywsgi
@@ -17,6 +18,7 @@ except Exception:
     pywsgi = None
 
 from .dropbox_wsgi import make_app
+from .caching import make_caching, FileSystemCache
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +121,10 @@ def main(args):
     port = 8080
 
     app = make_app(config, impl)
+
+    app = make_caching(FileSystemCache(config['app_dir']))(app)
+
+    app = validator(app)
 
     _start_server(app, host, port)
 
