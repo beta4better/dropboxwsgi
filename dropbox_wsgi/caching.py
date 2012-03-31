@@ -55,7 +55,6 @@ class FileSystemCache(object):
 
     def read_cached_headers(self, path):
         cache_path = self._generate_cache_path(path)
-        self._makedirs(cache_path)
         with open(os.path.join(cache_path, self.TAG_NAME), 'rb') as f:
             res = json.load(f)
 
