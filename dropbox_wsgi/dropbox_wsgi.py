@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+
 import calendar
 import errno
 import logging
@@ -20,11 +22,12 @@ import dropbox
 
 from dropbox.rest import ErrorResponse
 
-logger = logging.getLogger(__name__)
+from ._version import __version__
 
-HTTP_PRECONDITION_FAILED = 412
-HTTP_NOT_MODIFIED = 304
-HTTP_OK = 200
+# TODO: Range Requests (need to extend Dropbox SDK)
+# TODO: HEAD/PUT/POST Requests
+
+logger = logging.getLogger(__name__)
 
 def tz_offset(tz_string):
     factor = 1 if tz_string[0] == '+' else -1
@@ -59,6 +62,53 @@ def http_date_to_posix(date_string):
     else:
         raise ValueError("Date could not be parsed")
 
+MATCH_ANY = object()
+def get_match(environ, key_name):
+    try:
+        if_none_match = environ[key_name]
+    except KeyError:
+        return None
+    else:
+        if if_none_match.strip() == "*":
+            return MATCH_ANY
+        else:
+            return [a.strip() for a in if_none_match.split(',')]
+
+# it's nice to have this as a separate function
+HTTP_PRECONDITION_FAILED = 412
+HTTP_NOT_MODIFIED = 304
+HTTP_OK = 200
+def http_cache_logic(current_etag, current_modified_date,
+                     if_match, if_none_match, last_modified_since):
+    logger.debug("current_etag: %r", current_etag)
+    logger.debug("current_modified_date: %r", current_modified_date)
+    logger.debug("if_match: %r", if_match)
+    logger.debug("if_none_match: %r", if_none_match)
+    logger.debug("last_modified_since: %r", last_modified_since)
+
+    if (if_match is not None and
+        not (if_match is MATCH_ANY or
+             any(e == current_etag for e in if_match))):
+        logger.debug("precondition failed")
+        return HTTP_PRECONDITION_FAILED
+
+    if ((if_none_match is not None and
+         (if_none_match is MATCH_ANY or
+          any(e == current_etag for e in if_none_match)) and
+         (last_modified_since is None or
+          current_modified_date is None or
+          current_modified_date <= last_modified_since)) or
+        # this logic sucks, this is the case where if_none_match is not specified
+        (if_none_match is None and
+         last_modified_since is not None and
+         current_modified_date is not None and
+         current_modified_date <= last_modified_since)):
+        logger.debug("not modified")
+        return HTTP_NOT_MODIFIED
+
+    logger.debug("return ok")
+    return HTTP_OK
+
 class FileSystemStorage(object):
     def __init__(self, app_dir):
         self.access_token_path = os.path.join(app_dir, 'access_token')
@@ -74,6 +124,7 @@ class FileSystemStorage(object):
             json.dump((key, secret), f)
 
 def _render_directory_contents(environ, md):
+    # TODO: a version for mobile devices would be nice
     ret_path = md['path'].encode('utf8')
     yield '''<!DOCTYPE html>
 <html>
@@ -140,9 +191,9 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
     yield '''</tbody>
 </table>
 </div>
-<div class="foot">DropboxHTTP/1.0%(server_software)s</div>
+<div class="foot">dropbox_wsgi/%(version)s%(server_software)s</div>
 </body>
-</html>''' % dict(server_software=ss)
+</html>''' % dict(version=__version__, server_software=ss)
 
 def make_app(config, impl):
     http_root = config['http_root']
@@ -197,6 +248,10 @@ def make_app(config, impl):
         start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
         return ['Not Found!']
 
+    def bad_gateway_response(environ, start_response):
+        start_response('502 BAD GATEWAY', [('Content-type', 'text/plain')])
+        return ['Bad Gateway!']
+
     def not_modified_response(environ, start_response):
         start_response('304 NOT MODIFIED', [])
         return []
@@ -206,6 +261,12 @@ def make_app(config, impl):
         return ['Precondition Failed!']
 
     def app(environ, start_response):
+        # TODO: support other request methods
+        if environ['REQUEST_METHOD'].upper() != 'GET':
+            start_response('405 METHOD NOT ALLOWED', [('Content-type', 'text/plain'),
+                                                      ('Allow', 'GET')])
+            return ['Method Not Allowed!']
+
         # checked if we are linked yet
         if not sess.is_linked():
             return link_app(environ, start_response)
@@ -221,21 +282,8 @@ def make_app(config, impl):
         else:
             return not_found_response(environ, start_response)
 
-        # get etag
-        MATCH_ANY = object()
-        def get_match(key_name):
-            try:
-                if_none_match = environ[key_name]
-            except KeyError:
-                return None
-            else:
-                if if_none_match.strip() == "*":
-                    return MATCH_ANY
-                else:
-                    return [a.strip() for a in if_none_match.split(',')]
-
-        if_match = get_match('HTTP_IF_MATCH')
-        if_none_match = get_match('HTTP_IF_NONE_MATCH')
+        if_match = get_match(environ, 'HTTP_IF_MATCH')
+        if_none_match = get_match(environ, 'HTTP_IF_NONE_MATCH')
 
         # generate the kw args for metadata()
         # based on the passed in etag
@@ -253,25 +301,27 @@ def make_app(config, impl):
         try:
             md = client.metadata(path, list=allow_directory_listing, **kw)
         except Exception, e:
-            if isinstance(e, ErrorResponse):
+            if (isinstance(e, ErrorResponse) and
+                (e.status in (304, 404))):
                 if e.status == 304:
                     return not_modified_response(environ, start_response)
                 elif e.status == 404:
-                    pass
-                else:
-                    logger.exception("API Error")
+                    return not_found_response(environ, start_response)
             else:
                 logger.exception("API Error")
+                return bad_gateway_response(environ, start_response)
 
-            is_deleted = True
-        else:
-            is_deleted = md.get('is_deleted')
-
-        if is_deleted:
+        if md.get('is_deleted'):
             # if the file is deleted just cancel early
             return not_found_response(environ, start_response)
 
         if md['is_dir']:
+            if not allow_directory_listing:
+                # if we're not allowing directory listings
+                # just exit early
+                start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
+                return ['Forbidden']
+
             if path[-1] != u"/":
                 start_response('301 MOVED PERMANENTLY',
                                [('Location', '%s%s/' % (http_root, path.encode('utf8'))),
@@ -279,30 +329,27 @@ def make_app(config, impl):
                                 ('Content-Length', '0')])
                 return []
 
-            if not allow_directory_listing:
-                # if we're not allowing directory listings
-                # just exit early
-                start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
-                return ['Forbidden']
-
             current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
+            # we don't set a modified date for directories
+            # because md['modified'] applies to the directory entry
+            # itself in the dropbox api, not addition or removal of children
+            # we could use include_deleted and use max(ent['modified']) of all
+            # children but the 10000 entry limit scares me when including deleted files
             current_modified_date = None
-            def toret1(environ, start_response):
+            def directory_response(environ, start_response):
                 start_response('200 OK', [('Content-type', 'text/html'),
                                           ('ETag', current_etag)])
                 return _render_directory_contents(environ, md)
 
-            toret = toret1
+            toret = directory_response
         else:
             current_etag = '"_%s"' % md['rev'].encode('utf8')
             current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
-            def toret2(environ, start_response):
-                dropbox_date = md['modified'].encode('utf8')
-                last_modified_date = posix_to_http_date(dropbox_date_to_posix(dropbox_date))
+            def file_response(environ, start_response):
+                last_modified_date = posix_to_http_date(current_modified_date)
                 start_response('200 OK', [('Content-Type', md['mime_type'].encode('utf8')),
                                           ('Cache-Control', 'public, no-cache'),
                                           ('Content-Length', str(md['bytes'])),
-                                          ('Date', posix_to_http_date()),
                                           ('ETag', current_etag),
                                           ('Last-Modified', last_modified_date)])
 
@@ -319,39 +366,18 @@ def make_app(config, impl):
 
                 return gen()
 
-            toret = toret2
-
-        # it's nice to have this as a separate function
-        def http_cache_logic(current_etag, current_modified_date, if_match, if_none_match, last_modified_since):
-            logger.debug("current_etag: %r", current_etag)
-            logger.debug("current_modified_date: %r", current_modified_date)
-            logger.debug("if_match: %r", if_match)
-            logger.debug("if_none_match: %r", if_none_match)
-            logger.debug("last_modified_since: %r", last_modified_since)
-
-            if if_match is not None and not (if_match is MATCH_ANY or any(e[1:] == md['rev'] for e in if_match)):
-                logger.debug("precondition failed")
-                return HTTP_PRECONDITION_FAILED
-
-            if ((if_none_match is not None and (if_none_match is MATCH_ANY or any(e == current_etag for e in if_none_match)) and
-                 (last_modified_since is None or current_modified_date is None or current_modified_date <= last_modified_since)) or
-                # this logic sucks, this is the case where if_none_match is not specified
-                (if_none_match is None and last_modified_since is not None and current_modified_date is not None and current_modified_date <= last_modified_since)):
-                logger.debug("not modified")
-                return HTTP_NOT_MODIFIED
-
-            logger.debug("return ok")
-            return HTTP_OK
+            toret = file_response
 
         try:
-            last_modified_since = environ['HTTP_IF_MODIFIED_SINCE']
+            if_modified_since = environ['HTTP_IF_MODIFIED_SINCE']
         except KeyError:
-            last_modified_since = None
+            if_modified_since = None
         else:
-            last_modified_since = http_date_to_posix(last_modified_since)
+            if_modified_since = http_date_to_posix(if_modified_since)
 
         return_code = http_cache_logic(current_etag, current_modified_date,
-                                       if_match, if_none_match, last_modified_since)
+                                       if_match, if_none_match, if_modified_since)
+
         if return_code == HTTP_PRECONDITION_FAILED:
             return precondition_failed_response(environ, start_response)
         elif return_code == HTTP_NOT_MODIFIED:

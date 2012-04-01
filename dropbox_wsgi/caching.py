@@ -162,6 +162,10 @@ def make_caching(impl):
                 if etag is not None:
                     environ['HTTP_IF_NONE_MATCH'] = etag
 
+                last_modified = get_from_alist(h, 'last-modified', key=methodcaller('lower'))
+                if last_modified is not None:
+                    environ['HTTP_IF_MODIFIED_SINCE'] = last_modified
+
             writer = [None]
             def make_writer(headers):
                 f = impl.write_cached_data(path, headers)
@@ -205,7 +209,7 @@ def make_caching(impl):
             res = app(environ, my_start_response)
             if top_res[0].startswith('304'):
                 logger.debug("Cache hit")
-                # send out saved data
+                # send out locally saved data
                 start_response('200 OK', h)
                 fwrapper = environ.get('wsgi.file_wrapper', FileWrapper)
                 block_size = 16 * 1024
