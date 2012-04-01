@@ -107,7 +107,10 @@ def _start_server(app, host, port):
         logger.debug("using wsgiref!")
         make_server(host, port, app).serve_forever()
 
-def main(args):
+def main(args=None):
+    if args is None:
+        args = sys.argv
+
     logging.basicConfig(level=logging.DEBUG)
 
     config = dict(consumer_key='iodc7pv1hlolg5a',
