@@ -17,7 +17,7 @@ try:
 except Exception:
     pywsgi = None
 
-from .dropbox_wsgi import make_app
+from .dropbox_wsgi import make_app, FileSystemCredStorage
 from .caching import make_caching, FileSystemCache
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def main(args=None):
                   allow_directory_listing=True,
                   http_root='http://localhost:8080',
                   app_dir=os.path.expanduser('~/.dropboxhttp'))
-    impl = AppImpl(config['app_dir'])
+    impl = FileSystemCredStorage(config['app_dir'])
     host = '0.0.0.0'
     port = 8080
 

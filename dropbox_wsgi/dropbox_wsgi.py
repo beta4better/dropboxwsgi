@@ -109,7 +109,7 @@ def http_cache_logic(current_etag, current_modified_date,
     logger.debug("return ok")
     return HTTP_OK
 
-class FileSystemStorage(object):
+class FileSystemCredStorage(object):
     def __init__(self, app_dir):
         self.access_token_path = os.path.join(app_dir, 'access_token')
 
@@ -396,5 +396,5 @@ if __name__ == "__main__":
                   app_dir=os.path.expanduser('~/.dropboxhttp'))
 
     logging.basicConfig(level=logging.DEBUG)
-    impl = FileSystemStorage(config['app_dir'])
+    impl = FileSystemCredStorage(config['app_dir'])
     make_server('', 8080, validator(make_app(config, impl))).serve_forever()
