@@ -26,6 +26,7 @@ from ._version import __version__
 
 # TODO: Range Requests (need to extend Dropbox SDK)
 # TODO: HEAD/PUT/POST Requests
+# TODO: Support index.html-like files
 
 logger = logging.getLogger(__name__)
 
