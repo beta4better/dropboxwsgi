@@ -118,11 +118,18 @@ Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
             else:
                 return conv(v)
 
+        def __iter__(self):
+            return itertools.chain(self.defaults,
+                                   (o
+                                    for sec in self.config.sections()
+                                    for o in self.config.options(sec)
+                                    if o not in self.defaults))
+
+        def __len__(self):
+            return sum(1 for _ in self)
+
         def keys(self):
-            return list(set(self.defaults) |
-                        set(o
-                            for sec in self.config.sections()
-                            for o in self.config.options(sec)))
+            return list(self)
 
     return TopConfigObject(config, config_object, options)
 
