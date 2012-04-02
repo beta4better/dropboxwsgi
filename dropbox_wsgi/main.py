@@ -13,13 +13,18 @@ try:
 except Exception:
     import simplejson as json
 
-from UserDict import DictMixin
 from wsgiref.simple_server import make_server
 from wsgiref.validate import validator
 
 try:
+    from UserDict import DictMixin
+except ImportError:
+    # python 3
+    from collections import MutableMapping as DictMixin
+
+try:
     from gevent import pywsgi
-except Exception:
+except ImportError:
     pywsgi = None
 
 from .dropbox_wsgi import make_app, FileSystemCredStorage
