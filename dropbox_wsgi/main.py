@@ -18,9 +18,10 @@ from wsgiref.validate import validator
 
 try:
     from UserDict import DictMixin
+    class DictDerive(object, DictMixin): pass
 except ImportError:
     # python 3
-    from collections import MutableMapping as DictMixin
+    from collections import MutableMapping as DictDerive
 
 try:
     from gevent import pywsgi
@@ -102,7 +103,7 @@ Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
 
     config_object.read(read_from)
 
-    class TopConfigObject(object, DictMixin):
+    class TopConfigObject(DictDerive):
         def __init__(self, defaults, config_object, options):
             self.defaults = defaults
             self.config = config_object
@@ -117,6 +118,12 @@ Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
                 return self.defaults[k]
             else:
                 return conv(v)
+
+        def __delitem__(self, k):
+            raise NotImplementedError("Sorry")
+
+        def __setitem__(self, k, v):
+            raise NotImplementedError("Sorry")
 
         def __iter__(self):
             return itertools.chain(self.defaults,

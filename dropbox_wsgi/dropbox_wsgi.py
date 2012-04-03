@@ -5,6 +5,7 @@ import errno
 import logging
 import os
 import pprint
+import sys
 import tempfile
 import time
 import traceback
@@ -117,11 +118,11 @@ class FileSystemCredStorage(object):
     def read_access_token(self):
         # TODO: check validity of data stored in file
         # and blow away if invalid
-        with open(self.access_token_path, 'rb') as f:
+        with open(self.access_token_path, 'r') as f:
             return json.load(f)
 
     def write_access_token(self, key, secret):
-        with open(self.access_token_path, 'wb') as f:
+        with open(self.access_token_path, 'w') as f:
             json.dump((key, secret), f)
 
 def _render_directory_contents(environ, md):
@@ -273,15 +274,18 @@ def make_app(config, impl):
             return link_app(environ, start_response)
 
         # turn path into unicode
-        for enc in ['utf8', 'latin1']:
-            try:
-                path = environ['PATH_INFO'].decode(enc)
-            except UnicodeDecodeError:
-                pass
+        if sys.version_info < (3,):
+            for enc in ['utf8', 'latin1']:
+                try:
+                    path = environ['PATH_INFO'].decode(enc)
+                except UnicodeDecodeError:
+                    pass
+                else:
+                    break
             else:
-                break
+                return not_found_response(environ, start_response)
         else:
-            return not_found_response(environ, start_response)
+            path = environ['PATH_INFO']
 
         if_match = get_match(environ, 'HTTP_IF_MATCH')
         if_none_match = get_match(environ, 'HTTP_IF_NONE_MATCH')

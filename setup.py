@@ -26,6 +26,7 @@ from __future__ import with_statement
 
 import os
 import re
+import shutil
 import sys
 
 from setuptools import setup
@@ -66,6 +67,20 @@ Topic :: Software Development :: Libraries :: Python Modules
 
 KEYWORDS="networking"
 
+extra = {}
+if sys.version_info >= (3,):
+    extra['use_2to3'] = True
+    # convert the test code to Python 3
+    # because distribute won't do that for us
+    # first copy over the tests
+    if 'test' in sys.argv:
+        shutil.rmtree("3tests", ignore_errors=True)
+        shutil.copytree("tests", "3tests")
+        subprocess.call(["2to3", "-w", "--no-diffs", "3tests"])
+    TEST_SUITE = '3tests'
+else:
+    TEST_SUITE = 'tests'
+
 setup(
     name=PACKAGE_NAME,
     version=VERSION,
@@ -82,6 +97,8 @@ setup(
             'dropbox_wsgi = dropbox_wsgi.main:main'
             ]
         },
+    test_suite=TEST_SUITE,
     license="MIT License",
+    **extra
 )
 

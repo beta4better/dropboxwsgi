@@ -55,7 +55,7 @@ class FileSystemCache(object):
 
     def read_cached_headers(self, path):
         cache_path = self._generate_cache_path(path)
-        with open(os.path.join(cache_path, self.TAG_NAME), 'rb') as f:
+        with open(os.path.join(cache_path, self.TAG_NAME), 'r') as f:
             res = json.load(f)
 
         try:
@@ -96,7 +96,7 @@ class FileSystemCache(object):
 
                     os.rename(self.path, os.path.join(tmp_source_path, s1.DATA_NAME))
                     unlink = False
-                    with open(os.path.join(tmp_source_path, s1.TAG_NAME), 'wb') as f:
+                    with open(os.path.join(tmp_source_path, s1.TAG_NAME), 'w') as f:
                         json.dump(headers, f)
 
                     cache_path = s1._generate_cache_path(path)
