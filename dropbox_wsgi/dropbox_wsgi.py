@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import traceback
+import urllib
 
 try:
     import json
@@ -54,8 +55,8 @@ def tz_offset(tz_string):
     return factor * (hours + minutes)
 
 def dropbox_date_to_posix(date_string):
-    fmt_date, tz = date_string.rsplit(u(' '), 1)
-    ts = calendar.timegm(time.strptime(fmt_date, u("%a, %d %b %Y %H:%M:%S")))
+    fmt_date, tz = date_string.rsplit(u' ', 1)
+    ts = calendar.timegm(time.strptime(fmt_date, u"%a, %d %b %Y %H:%M:%S"))
     return ts + tz_offset(tz)
 
 def posix_to_http_date(ts=None):
@@ -143,8 +144,8 @@ class FileSystemCredStorage(object):
 
 def _render_directory_contents(environ, md):
     # TODO: a version for mobile devices would be nice
-    ret_path = md['path'].encode('utf8')
-    yield '''<!DOCTYPE html>
+    ret_path = md['path']
+    yield (u'''<!DOCTYPE html>
 <html>
 <head>
 <title>Index of %(path)s%(trail)s</title>
@@ -176,42 +177,46 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
 </tr>
 </thead>
 <tbody>
-''' % dict(path=ret_path, trail="" if ret_path[-1] == "/" else "/")
+''' % dict(path=ret_path, trail=u"" if ret_path[-1] == u"/" else u"/")).encode('utf-8')
 
     if md['path'] != u'/':
-        yield '<tr>\n'
-        yield '<td class="n"><a href="../">Parent Directory</a>/</td>\n'
-        yield '<td class="m"></td>\n'
-        yield '<td class="s">-&nbsp;&nbsp;</td>\n'
-        yield '<td class="t">Directory</td>\n'
-        yield '</tr>\n'
+        yield b('<tr>\n')
+        yield b('<td class="n"><a href="../">Parent Directory</a>/</td>\n')
+        yield b('<td class="m"></td>\n')
+        yield b('<td class="s">-&nbsp;&nbsp;</td>\n')
+        yield b('<td class="t">Directory</td>\n')
+        yield b('</tr>\n')
 
     for entry in md['contents']:
-        enc_path = entry['path'].encode('utf8')
-        name = enc_path.rsplit('/', 1)[1]
-        trail = "/" if entry['is_dir'] else ""
-        yield '<tr>\n'
-        yield ('<td class="n"><a href="%s%s">%s</a>%s</td>\n'
-               % (enc_path, trail, name, trail))
-        yield ('<td class="m">%s</td>\n'
-               % time.strftime("%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified']))))
-        yield ('<td class="s">%s</td>\n'
-               % ('- &nbsp;'
+        path = entry['path']
+        name = path.rsplit(u'/', 1)[1]
+        trail = u"/" if entry['is_dir'] else u""
+        yield b('<tr>\n')
+        yield (u'<td class="n"><a href="%s%s">%s</a>%s</td>\n'
+               % (path, trail, name, trail)).encode('utf8')
+        yield (u'<td class="m">%s</td>\n'
+               % time.strftime(u"%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))).encode('utf8')
+        yield (u'<td class="s">%s</td>\n'
+               % (u'- &nbsp;'
                   if entry['is_dir'] else
-                  entry['size'].encode('utf8')))
-        yield ('<td class="t">%s</td>\n'
-               % ('Directory' if entry['is_dir'] else entry['mime_type'].encode('utf8')))
-        yield '</tr>\n'
+                  entry['size'])).encode('utf8')
+        yield (u'<td class="t">%s</td>\n'
+               % (u'Directory' if entry['is_dir'] else entry['mime_type'])).encode('utf8')
+        yield b('</tr>\n')
 
     ss = environ.get('SERVER_SOFTWARE', '')
     if ss:
         ss = ' ' + ss
-    yield '''</tbody>
+    toyield = ('''</tbody>
 </table>
 </div>
 <div class="foot">dropbox_wsgi/%(version)s%(server_software)s</div>
 </body>
-</html>''' % dict(version=__version__, server_software=ss)
+</html>''' % dict(version=__version__, server_software=ss))
+    if sys.version_info >= (3,):
+        toyield = toyield.encode('utf8')
+
+    yield toyield
 
 def make_app(config, impl):
     http_root = config['http_root']
@@ -289,19 +294,21 @@ def make_app(config, impl):
         if not sess.is_linked():
             return link_app(environ, start_response)
 
+        path = environ['PATH_INFO']
+
+        if sys.version_info >= (3,):
+            path = path.encode('latin1')
+
         # turn path into unicode
-        if sys.version_info < (3,):
-            for enc in ['utf8', 'latin1']:
-                try:
-                    path = environ['PATH_INFO'].decode(enc)
-                except UnicodeDecodeError:
-                    pass
-                else:
-                    break
+        for enc in ['utf8', 'latin1']:
+            try:
+                path = path.decode(enc)
+            except UnicodeDecodeError:
+                pass
             else:
-                return not_found_response(environ, start_response)
+                break
         else:
-            path = environ['PATH_INFO']
+            return not_found_response(environ, start_response)
 
         if_match = get_match(environ, 'HTTP_IF_MATCH')
         if_none_match = get_match(environ, 'HTTP_IF_NONE_MATCH')
@@ -327,6 +334,7 @@ def make_app(config, impl):
                 if e.status == 304:
                     return not_modified_response(environ, start_response)
                 elif e.status == 404:
+                    logging.debug("API error says not found: %r", path)
                     return not_found_response(environ, start_response)
             else:
                 logger.exception("API Error")
@@ -334,6 +342,7 @@ def make_app(config, impl):
 
         if md.get('is_deleted'):
             # if the file is deleted just cancel early
+            logging.debug("File is deleted: %r", path)
             return not_found_response(environ, start_response)
 
         if md['is_dir']:
