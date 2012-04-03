@@ -37,12 +37,6 @@ def u(lit):
     else:
         return lit.decode('latin1')
 
-def w(u):
-    if sys.version_info >= (3,):
-        return u
-    else:
-        return u.encode('latin1')
-
 def b(lit):
     if sys.version_info >= (3,):
         return lit.encode('latin1')
@@ -51,7 +45,7 @@ def b(lit):
 
 def uri_encode(path):
     # XXX: this is wrong
-    return w(path)
+    return path
 
 def tz_offset(tz_string):
     factor = 1 if tz_string[0] == '+' else -1
@@ -356,7 +350,7 @@ def make_app(config, impl):
                                 ('Content-Length', '0')])
                 return []
 
-            current_etag = w(u('"d%s"') % md['hash'])
+            current_etag = u('"d%s"') % md['hash']
             # we don't set a modified date for directories
             # because md['modified'] applies to the directory entry
             # itself in the dropbox api, not addition or removal of children
@@ -370,11 +364,11 @@ def make_app(config, impl):
 
             toret = directory_response
         else:
-            current_etag = w(u('"_%s"') % md['rev'])
+            current_etag = u('"_%s"') % md['rev']
             current_modified_date = dropbox_date_to_posix(md['modified'])
             def file_response(environ, start_response):
                 last_modified_date = posix_to_http_date(current_modified_date)
-                start_response('200 OK', [('Content-Type', w(md['mime_type'])),
+                start_response('200 OK', [('Content-Type', md['mime_type']),
                                           ('Cache-Control', 'public, no-cache'),
                                           ('Content-Length', str(md['bytes'])),
                                           ('ETag', current_etag),
