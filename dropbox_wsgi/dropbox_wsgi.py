@@ -31,6 +31,28 @@ from ._version import __version__
 
 logger = logging.getLogger(__name__)
 
+def u(lit):
+    if sys.version_info >= (3,):
+        return lit
+    else:
+        return lit.decode('latin1')
+
+def w(u):
+    if sys.version_info >= (3,):
+        return u
+    else:
+        return u.encode('latin1')
+
+def b(lit):
+    if sys.version_info >= (3,):
+        return lit.encode('latin1')
+    else:
+        return lit
+
+def uri_encode(path):
+    # XXX: this is wrong
+    return w(path)
+
 def tz_offset(tz_string):
     factor = 1 if tz_string[0] == '+' else -1
     hours = 3600 * int(tz_string[1:3])
@@ -38,8 +60,8 @@ def tz_offset(tz_string):
     return factor * (hours + minutes)
 
 def dropbox_date_to_posix(date_string):
-    fmt_date, tz = date_string.rsplit(' ', 1)
-    ts = calendar.timegm(time.strptime(fmt_date, "%a, %d %b %Y %H:%M:%S"))
+    fmt_date, tz = date_string.rsplit(u(' '), 1)
+    ts = calendar.timegm(time.strptime(fmt_date, u("%a, %d %b %Y %H:%M:%S")))
     return ts + tz_offset(tz)
 
 def posix_to_http_date(ts=None):
@@ -248,11 +270,11 @@ def make_app(config, impl):
 
     def not_found_response(environ, start_response):
         start_response('404 NOT FOUND', [('Content-type', 'text/plain')])
-        return ['Not Found!']
+        return [b('Not Found!')]
 
     def bad_gateway_response(environ, start_response):
         start_response('502 BAD GATEWAY', [('Content-type', 'text/plain')])
-        return ['Bad Gateway!']
+        return [b('Bad Gateway!')]
 
     def not_modified_response(environ, start_response):
         start_response('304 NOT MODIFIED', [])
@@ -260,14 +282,14 @@ def make_app(config, impl):
 
     def precondition_failed_response(environ, start_response):
         start_response('412 PRECONDITION FAILED', [('Content-type', 'text/plain')])
-        return ['Precondition Failed!']
+        return [b('Precondition Failed!')]
 
     def app(environ, start_response):
         # TODO: support other request methods
         if environ['REQUEST_METHOD'].upper() != 'GET':
             start_response('405 METHOD NOT ALLOWED', [('Content-type', 'text/plain'),
                                                       ('Allow', 'GET')])
-            return ['Method Not Allowed!']
+            return [b('Method Not Allowed!')]
 
         # checked if we are linked yet
         if not sess.is_linked():
@@ -325,16 +347,16 @@ def make_app(config, impl):
                 # if we're not allowing directory listings
                 # just exit early
                 start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
-                return ['Forbidden']
+                return [b('Forbidden')]
 
             if path[-1] != u"/":
                 start_response('301 MOVED PERMANENTLY',
-                               [('Location', '%s%s/' % (http_root, path.encode('utf8'))),
+                               [('Location', '%s%s/' % (http_root, uri_encode(path))),
                                 ('Content-Type', 'text/plain'),
                                 ('Content-Length', '0')])
                 return []
 
-            current_etag = '"d%s"' % (md['hash'].encode('utf8'),)
+            current_etag = w(u('"d%s"') % md['hash'])
             # we don't set a modified date for directories
             # because md['modified'] applies to the directory entry
             # itself in the dropbox api, not addition or removal of children
@@ -348,11 +370,11 @@ def make_app(config, impl):
 
             toret = directory_response
         else:
-            current_etag = '"_%s"' % md['rev'].encode('utf8')
-            current_modified_date = dropbox_date_to_posix(md['modified'].encode('utf8'))
+            current_etag = w(u('"_%s"') % md['rev'])
+            current_modified_date = dropbox_date_to_posix(md['modified'])
             def file_response(environ, start_response):
                 last_modified_date = posix_to_http_date(current_modified_date)
-                start_response('200 OK', [('Content-Type', md['mime_type'].encode('utf8')),
+                start_response('200 OK', [('Content-Type', w(md['mime_type'])),
                                           ('Cache-Control', 'public, no-cache'),
                                           ('Content-Length', str(md['bytes'])),
                                           ('ETag', current_etag),
