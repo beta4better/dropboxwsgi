@@ -187,6 +187,8 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
         yield b('<td class="t">Directory</td>\n')
         yield b('</tr>\n')
 
+    # Show directories first
+    md['contents'].sort(key=lambda ent: (not ent['is_dir'], ent['path']))
     for entry in md['contents']:
         path = entry['path']
         name = path.rsplit(u'/', 1)[1]
@@ -367,7 +369,7 @@ def make_app(config, impl):
             # children but the 10000 entry limit scares me when including deleted files
             current_modified_date = None
             def directory_response(environ, start_response):
-                start_response('200 OK', [('Content-type', 'text/html'),
+                start_response('200 OK', [('Content-type', 'text/html; charset=utf-8'),
                                           ('ETag', current_etag)])
                 return _render_directory_contents(environ, md)
 

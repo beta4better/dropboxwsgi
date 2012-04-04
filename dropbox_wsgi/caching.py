@@ -4,6 +4,7 @@ import operator
 import os
 import logging
 import shutil
+import sys
 import tempfile
 
 try:
@@ -56,14 +57,22 @@ class FileSystemCache(object):
     def read_cached_headers(self, path):
         cache_path = self._generate_cache_path(path)
         with open(os.path.join(cache_path, self.TAG_NAME), 'r') as f:
-            res = json.load(f)
+            try:
+                res = json.load(f)
+            except ValueError:
+                res = None
 
         try:
-            return [(k.encode('utf8'), v.encode('utf8')) for (k, v) in res]
+            if sys.version_info < (3,):
+                res = [(k.encode('utf8'), v.encode('utf8')) for (k, v) in res]
+            else:
+                res = map(tuple, res)
         except Exception:
             logger.exception("Bad data in metadata file!")
             self.drop_cached_data(path)
             raise
+        else:
+            return res
 
     def drop_cached_data(self, path):
         try:
@@ -166,6 +175,8 @@ def make_caching(impl):
                 if last_modified is not None:
                     environ['HTTP_IF_MODIFIED_SINCE'] = last_modified
 
+                logger.debug("for %r, etag: %r, last-modified: %r")
+
             writer = [None]
             def make_writer(headers):
                 f = impl.write_cached_data(path, headers)
@@ -208,14 +219,14 @@ def make_caching(impl):
 
             res = app(environ, my_start_response)
             if top_res[0].startswith('304'):
-                logger.debug("Cache hit")
+                logger.debug("Cache hit: %r", path)
                 # send out locally saved data
                 start_response('200 OK', h)
                 fwrapper = environ.get('wsgi.file_wrapper', FileWrapper)
                 block_size = 16 * 1024
                 toret = fwrapper(impl.read_cached_data(path), block_size)
             elif writer[0] is not None:
-                logger.debug("Cache miss")
+                logger.debug("Cache miss: %r", path)
                 # handle the rest of data for saving
                 def better_res():
                     for d in res:
