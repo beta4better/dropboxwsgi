@@ -151,6 +151,18 @@ class FileSystemCredStorage(object):
         with open(self.access_token_path, 'w') as f:
             json.dump((key, secret), f)
 
+class MemoryCredStorage(object):
+    def __init__(self):
+        self._token = None
+
+    def read_access_token(self):
+        if self._token is None:
+            raise Exception("No Token!")
+        return self._token
+
+    def write_access_token(self, key, secret):
+        self._token = (key, secret)
+
 def _render_directory_contents(environ, md):
     # TODO: a version for mobile devices would be nice
     ret_path = md['path']

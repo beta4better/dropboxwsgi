@@ -59,10 +59,10 @@ logger = logging.getLogger(__name__)
 
 def _start_server(app, host, port):
     if pywsgi:
-        logger.debug("using gevent!")
+        logger.info("Server is running; using gevent server")
         pywsgi.WSGIServer((host, port), app).serve_forever()
     else:
-        logger.debug("using wsgiref!")
+        logger.info("Server is running; using wsgiref server")
         make_server(host, port, app).serve_forever()
 
 def console_output(str_, *args):
