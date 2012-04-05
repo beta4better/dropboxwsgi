@@ -163,6 +163,14 @@ class MemoryCredStorage(object):
     def write_access_token(self, key, secret):
         self._token = (key, secret)
 
+def _make_server_tag(environ):
+    ss = environ.get('SERVER_SOFTWARE', '')
+    if ss:
+        ss = ' ' + ss
+
+    return ('dropboxwsgi/%(version)s%(server_software)s' %
+            dict(version=__version__, server_software=ss))
+
 def _render_directory_contents(environ, md):
     # TODO: a version for mobile devices would be nice
     ret_path = md['path']
@@ -227,15 +235,13 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
                % (u'Directory' if entry['is_dir'] else entry['mime_type'])).encode('utf8')
         yield b('</tr>\n')
 
-    ss = environ.get('SERVER_SOFTWARE', '')
-    if ss:
-        ss = ' ' + ss
     toyield = ('''</tbody>
 </table>
 </div>
-<div class="foot">dropboxwsgi/%(version)s%(server_software)s</div>
+<div class="foot">%s</div>
 </body>
-</html>''' % dict(version=__version__, server_software=ss))
+</html>''' % _make_server_tag(environ))
+
     if sys.version_info >= (3,):
         toyield = toyield.encode('utf8')
 
@@ -306,6 +312,15 @@ def make_app(config, impl):
         start_response('412 PRECONDITION FAILED', [('Content-type', 'text/plain')])
         return [b('Precondition Failed!')]
 
+    def add_server_tag(app):
+        def new_app(environ, start_response):
+            def my_start_response(code, headers):
+                headers.append(('Server', _make_server_tag(environ)))
+                return start_response(code, headers)
+            return app(environ, my_start_response)
+        return new_app
+
+    @add_server_tag
     def app(environ, start_response):
         # TODO: support other request methods
         if environ['REQUEST_METHOD'].upper() != 'GET':
@@ -378,8 +393,7 @@ def make_app(config, impl):
             if path[-1] != u"/":
                 start_response('301 MOVED PERMANENTLY',
                                [('Location', '%s%s/' % (http_root, urllib.quote(r(path, enc='utf8')))),
-                                ('Content-Type', 'text/plain'),
-                                ('Content-Length', '0')])
+                                ('Content-Type', 'text/plain')])
                 return []
 
             current_etag = r(u'"d%s"' % md['hash'])
@@ -391,6 +405,7 @@ def make_app(config, impl):
             current_modified_date = None
             def directory_response(environ, start_response):
                 start_response('200 OK', [('Content-type', 'text/html; charset=utf-8'),
+                                          ('Cache-Control', 'public, no-cache'),
                                           ('ETag', current_etag)])
                 return _render_directory_contents(environ, md)
 

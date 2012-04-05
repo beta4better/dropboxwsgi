@@ -163,7 +163,7 @@ def config_from_options(options, argv):
     dispatch['-h'] = dispatch['--help'] = handle_help
 
     config_object = ConfigParser.SafeConfigParser()
-    read_from = [os.path.expanduser("~/.dropboxhttp/config")]
+    read_from = [os.path.expanduser("~/.dropboxwsgi/config")]
     def handle_config(a):
         read_from[0] = a
 
@@ -285,10 +285,10 @@ def main(argv=None):
                 'true if you want to allow directory listings, false otherwise'),
 
                ('cache_dir', 'Storage', None, 'cache-dir', identity,
-                os.path.expanduser("~/.dropboxhttp/cache"),
+                os.path.expanduser("~/.dropboxwsgi/cache"),
                 'path to use when caching data from the Dropbox API locally'),
                ('app_dir', 'Storage', None, 'app-dir', identity,
-                os.path.expanduser("~/.dropboxhttp"),
+                os.path.expanduser("~/.dropboxwsgi"),
                 'path to use for storing internal app data, like access credentials')]
 
     try:
