@@ -300,7 +300,7 @@ def main(argv=None):
     logging.basicConfig(level=config['log_level'])
 
     if config['http_root'] is None:
-        usage(options, err="Error: Must specify http-root!", argv=argv)
+        usage(options, err="error: Must specify http-root!", argv=argv)
         return 3
 
     app = make_app(config, FileSystemCredStorage(config['app_dir']))
