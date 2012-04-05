@@ -251,6 +251,19 @@ def make_app(config, impl):
     http_root = config['http_root']
     finish_link_path = '/finish_link'
     block_size = 16 * 1024
+    allow_directory_listing = config.get('allow_directory_listing', True)
+
+    index_file_list = config.get('index_file_names')
+    if index_file_list:
+        index_files = set(a.lower() for a in index_file_list)
+        def finder_(directory_contents):
+            for ent in directory_contents:
+                if (ent['path'].rsplit(u'/', 1)[1].lower() in index_files and
+                    not ent['is_dir']):
+                    return ent['path']
+        find_index_file = finder_
+    else:
+        find_index_file = None
 
     sess = dropbox.session.DropboxSession(config['consumer_key'],
                                           config['consumer_secret'],
@@ -356,16 +369,20 @@ def make_app(config, impl):
         if (if_none_match is not None and
             if_none_match is not MATCH_ANY and
             len(if_none_match) == 1 and
-            if_none_match[0].startswith('"d')):
+            if_none_match[0].startswith('"d') and
+            # don't want to eager 304 if we're going to look
+            # through the contents
+            not find_index_file):
             kw = {'hash' : if_none_match[0][2:-1]}
         else:
             kw = {}
 
-        allow_directory_listing = config.get('allow_directory_listing', True)
+        should_list = (path[-1] == u"/" and
+                       (find_index_file or
+                        allow_directory_listing))
 
-        # get the metadata for this call
         try:
-            md = client.metadata(path, list=allow_directory_listing, **kw)
+            md = client.metadata(path, list=should_list, **kw)
         except Exception, e:
             if (isinstance(e, ErrorResponse) and
                 (e.status in (304, 404))):
@@ -383,18 +400,35 @@ def make_app(config, impl):
             logging.debug("File is deleted: %r", path)
             return not_found_response(environ, start_response)
 
+        if md['is_dir'] and path[-1] != u"/":
+            start_response('307 Temporary Redirect',
+                           [('Location', '%s%s/' % (http_root, urllib.quote(r(path, enc='utf8')))),
+                            # wsgiref.validator fails if we don't include this
+                            ('Content-Type', 'text/plain')])
+            return []
+
+        # Handle index files
+        if md['is_dir'] and find_index_file:
+            index_file = find_index_file(md['contents'])
+            if index_file is not None:
+                try:
+                    md2 = client.metadata(index_file, list=False)
+                except Exception:
+                    logger.exception("Exception while trying to get index file")
+                else:
+                    print md2
+                    # make sure this index file didn't turn into a directory
+                    # in the interim
+                    if not md2['is_dir'] and not md2.get('is_deleted'):
+                        path = index_file
+                        md = md2
+
         if md['is_dir']:
             if not allow_directory_listing:
                 # if we're not allowing directory listings
                 # just exit early
                 start_response('403 FORBIDDEN', [('Content-type', 'text/plain')])
                 return [b('Forbidden')]
-
-            if path[-1] != u"/":
-                start_response('301 MOVED PERMANENTLY',
-                               [('Location', '%s%s/' % (http_root, urllib.quote(r(path, enc='utf8')))),
-                                ('Content-Type', 'text/plain')])
-                return []
 
             current_etag = r(u'"d%s"' % md['hash'])
             # we don't set a modified date for directories

@@ -70,10 +70,10 @@ def console_output(str_, *args):
 
 def usage(options, err='', argv=None):
     if argv is None:
-        argv = sys.args
+        argv = sys.argv
 
     if err:
-        console_output(err)
+        console_output('error: ' + err)
 
     console_output("""Usage: %s %s [OPTION]
 Run the dropboxwsgi HTTP server.
@@ -257,6 +257,9 @@ def main(argv=None):
                 host = a
         return (host, port)
 
+    def list_from_csv(a):
+        return a.split(',')
+
     # [(top_level_dict_key, config_section_name, short_option, long_option, from_string, default)]
     options = [('log_level', 'Debugging', 'l', 'log-level', log_level_from_string,
                 logging.WARNING, ('set minimum level when outputting log data. LEVEL can be one of '
@@ -283,6 +286,9 @@ def main(argv=None):
                ('allow_directory_listing', 'Server', None, 'allow-directory-listing',
                 bool_from_string, True,
                 'true if you want to allow directory listings, false otherwise'),
+               ('index_file_names', 'Server', None, 'index-file-names',
+                list_from_csv, [],
+                'comma-separated list of file names to search for if a directory is requested'),
 
                ('cache_dir', 'Storage', None, 'cache-dir', identity,
                 os.path.expanduser("~/.dropboxwsgi/cache"),
@@ -300,7 +306,7 @@ def main(argv=None):
     logging.basicConfig(level=config['log_level'])
 
     if config['http_root'] is None:
-        usage(options, err="error: Must specify http-root!", argv=argv)
+        usage(options, err="Must specify http-root!", argv=argv)
         return 3
 
     app = make_app(config, FileSystemCredStorage(config['app_dir']))
