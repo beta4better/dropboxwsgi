@@ -7,7 +7,7 @@ also includes a server application, also called ``dropbox_wsgi``, that runs
 the WSGI application. The HTTP caching headers (ETag, Last-Modified) are
 fully supported.
 
-This is useful in situations where you'd like to serve out a web site
+This is useful in situations where you'd like to serve a web site
 out of your Dropbox, either to the world or in a private network.
 Compare this to the current solution of linking the Dropbox desktop
 client on your server and serving out of your Dropbox folder.
@@ -43,7 +43,7 @@ using it on the command line first::
   listen = 8080
   EOF
   $ dropbox_wsgi -c config.ini -l info
-  Server is running; using wsgiref server"
+  Server is running; using wsgiref server
 
 Pretty simple. Now point your browser to ``http://localhost:8080/``. If
 you want to run this in production I recommend using the gevent_ WSGI
