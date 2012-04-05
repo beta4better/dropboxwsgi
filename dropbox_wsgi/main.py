@@ -41,14 +41,14 @@ def _start_server(app, host, port):
         logger.debug("using wsgiref!")
         make_server(host, port, app).serve_forever()
 
-def console_output(str_):
-    print str_
+def console_output(str_, *args):
+    print str_ % args
 
 def config_from_options(options, argv):
-    short_options = ''.join(itertools.chain(('%s:' % s for (_, _, s, _, _, _) in options
+    short_options = ''.join(itertools.chain(('%s:' % s for (_, _, s, _, _, _, _) in options
                                              if s is not None),
                                             ['h', 'c:']))
-    long_options = ['%s=' % l for (_, _, _, l, _, _) in options
+    long_options = ['%s=' % l for (_, _, _, l, _, _, _) in options
                     if l is not None]
     long_options.extend(['help', 'config='])
 
@@ -56,9 +56,57 @@ def config_from_options(options, argv):
         if err:
             console_output(err)
 
-        console_output("""Usage: %(executable)s %(progname)s [OPTION]
-Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
-                                            progname=argv[0]))
+        console_output("""Usage: %s %s [OPTION]
+Run the dropbox_wsgi HTTP server.
+""", sys.executable, argv[0])
+
+        def get_front_str(short, long_):
+            if (short is not None and
+                long_ is not None):
+                return "-%s, --%s=ARG" % (short, long_)
+            elif (short is None and
+                  long_ is not None):
+                return "--%s=ARG" % long_
+            elif (long_ is None and
+                  short_ is not None):
+                return "-%s" % short
+
+        def group_len(seq, len_):
+            word_index = 0
+            words = seq.split()
+            toret = []
+            while word_index < len(words):
+                new_words = [words[word_index]]
+                cur_len = len(new_words[-1])
+                word_index += 1
+
+                while word_index < len(words) and cur_len + len(new_words) - 1 < len_:
+                    new_words.append(words[word_index])
+                    cur_len += len(new_words[-1])
+                    word_index += 1
+
+                toret.append(' '.join(new_words))
+
+            return toret
+
+        options_ = sorted(itertools.chain(options,
+                                          [(None, None, 'h', 'help', None, None,
+                                            'display this message and exit'),
+                                           (None, None, 'c', 'config', None, None,
+                                            'run with config ARG')]),
+                          key=lambda x: (x[2] is None, x[2], x[3]))
+
+        header_len = max(len(get_front_str(short, long_))
+                         for (_, _, short, long_, _, _, doc) in options_)
+
+        for (_, _, short, long_, _, _, doc) in options_:
+            ops = get_front_str(short, long_)
+            # TODO: use console width if exists
+            min_seqs = group_len(doc, 80 - (header_len - 2))
+            min_seqs = min_seqs or ['']
+            console_output("%-*s  %s", header_len, ops, min_seqs[0])
+            for elt in itertools.islice(min_seqs, 1, len(min_seqs)):
+                console_output("%s  %s", " " * header_len, elt)
 
     try:
         opts, args = getopt.getopt(argv[1:], short_options, long_options)
@@ -67,14 +115,14 @@ Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
         usage(str(err))
         raise SystemExit()
 
-    config = dict((k, d) for (k, _, _, _, _, d) in options)
-    def create_d(k, section, short, long_, conv, _):
+    config = dict((k, d) for (k, _, _, _, _, d, _) in options)
+    def create_d(k, _a, _b, _c, conv, _d, _e):
         def d(arg): config[k] = conv(arg)
         return d
 
     dispatch = {}
     for a in options:
-        (_, _, short, long_, _, _) = a
+        (_, _, short, long_, _, _, _) = a
         d = create_d(*a)
         if short is not None:
             dispatch['-' + short] = d
@@ -107,7 +155,7 @@ Run the dropbox_wsgi HTTP server.""" % dict(executable=sys.executable,
         def __init__(self, defaults, config_object, options):
             self.defaults = defaults
             self.config = config_object
-            self.key_to_section = dict((k, (s, conv)) for (k, s, _, _, conv, _) in options)
+            self.key_to_section = dict((k, (s, conv)) for (k, s, _, _, conv, _, _) in options)
 
         def __getitem__(self, k):
             (section, conv) = self.key_to_section[k]
@@ -184,24 +232,37 @@ def main(argv=None):
 
     # [(top_level_dict_key, config_section_name, short_option, long_option, from_string, default)]
     options = [('log_level', 'Debugging', 'l', 'log-level', log_level_from_string,
-                logging.WARNING),
+                logging.WARNING, ('set minimum level when outputting log data. LEVEL can be one of '
+                                  'debug, info, warning, error, critical, exception')),
 
-               ('consumer_key', 'Credentials', None, 'consumer-key', identity, None),
-               ('consumer_secret', 'Credentials', None, 'consumer-secret', identity, None),
-               ('access_type', 'Credentials', None, 'access-type', access_type_from_string, None),
+               ('consumer_key', 'Credentials', None, 'consumer-key', identity, None,
+                'consumer key to use when accessing the Dropbox API'),
+               ('consumer_secret', 'Credentials', None, 'consumer-secret', identity, None,
+                'consumer secret to use when accessing the Dropbox API'),
+               ('access_type', 'Credentials', None, 'access-type', access_type_from_string, None,
+                ('access type to use when accessing the Dropbox API. can be one of '
+                 'dropbox or app_folder')),
 
-               ('http_root', 'Server', None, 'http-root', identity, None),
-               ('listen', 'Server', None, 'listen', address_from_string, ('', 80)),
+               ('http_root', 'Server', None, 'http-root', identity, None,
+                ('http root to use when redirecting and creating absolute links, '
+                 'e.g. "http://www.example.com"')),
+               ('listen', 'Server', None, 'listen', address_from_string, ('', 80),
+                'address for server to listen on, e.g. "0.0.0.0:80"'),
                ('enable_local_caching', 'Server', None, 'enable-local-caching', bool_from_string,
-                True),
-               ('validate_wsgi', 'Server', None, 'validate-wsgi', bool_from_string, False),
+                True, 'true if you want to cache data from the Dropbox API on this server, false otherwise'),
+               ('validate_wsgi', 'Server', None, 'validate-wsgi', bool_from_string, False,
+                ('true if you want to apply the wsgi.validator.validate '
+                 'decorator to this WSGI app, false otherwise')),
                ('allow_directory_listing', 'Server', None, 'allow-directory-listing',
-                bool_from_string, True),
+                bool_from_string, True,
+                'true if you want to allow directory listings, false otherwise'),
 
                ('cache_dir', 'Storage', None, 'cache-dir', identity,
-                os.path.expanduser("~/.dropboxhttp/cache")),
+                os.path.expanduser("~/.dropboxhttp/cache"),
+                'path to use when caching data from the Dropbox API locally'),
                ('app_dir', 'Storage', None, 'app-dir', identity,
-                os.path.expanduser("~/.dropboxhttp"))]
+                os.path.expanduser("~/.dropboxhttp"),
+                'path to use for storing internal app data, like access credentials')]
 
     try:
         config = config_from_options(options, argv)
