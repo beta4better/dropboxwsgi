@@ -38,6 +38,8 @@ except Exception:
 
 from wsgiref.util import FileWrapper
 
+from .six import r
+
 logger = logging.getLogger(__name__)
 
 class FileSystemCache(object):
@@ -84,17 +86,18 @@ class FileSystemCache(object):
             try:
                 res = json.load(f)
             except ValueError:
+                logger.exception("Bad data in metadata file!")
                 res = None
 
-        try:
-            if sys.version_info < (3,):
-                res = [(k.encode('utf8'), v.encode('utf8')) for (k, v) in res]
-            else:
-                res = map(tuple, res)
-        except Exception:
-            logger.exception("Bad data in metadata file!")
+        if res:
+            try:
+                res = [(r(k), r(v)) for (k, v) in res]
+            except Exception:
+                logger.exception("Bad data in metadata file!")
+
+        if not res:
             self.drop_cached_data(path)
-            raise
+            raise Exception("Bad data in metadata file!")
         else:
             return res
 

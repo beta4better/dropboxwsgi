@@ -68,6 +68,65 @@ def _start_server(app, host, port):
 def console_output(str_, *args):
     print str_ % args
 
+def usage(options, err='', argv=None):
+    if argv is None:
+        argv = sys.args
+
+    if err:
+        console_output(err)
+
+    console_output("""Usage: %s %s [OPTION]
+Run the dropbox_wsgi HTTP server.
+""", sys.executable, argv[0])
+
+    def get_front_str(short, long_):
+        if (short is not None and
+            long_ is not None):
+            return "-%s, --%s=ARG" % (short, long_)
+        elif (short is None and
+              long_ is not None):
+            return "--%s=ARG" % long_
+        elif (long_ is None and
+              short_ is not None):
+            return "-%s" % short
+
+    def group_len(seq, len_):
+        word_index = 0
+        words = seq.split()
+        toret = []
+        while word_index < len(words):
+            new_words = [words[word_index]]
+            cur_len = len(new_words[-1])
+            word_index += 1
+
+            while word_index < len(words) and cur_len + len(new_words) - 1 < len_:
+                new_words.append(words[word_index])
+                cur_len += len(new_words[-1])
+                word_index += 1
+
+            toret.append(' '.join(new_words))
+
+        return toret
+
+    options_ = sorted(itertools.chain(options,
+                                      [(None, None, 'h', 'help', None, None,
+                                        'display this message and exit'),
+                                       (None, None, 'c', 'config', None, None,
+                                        'run with config ARG')]),
+                      key=lambda x: (x[2] is None, x[2], x[3]))
+
+    header_len = max(len(get_front_str(short, long_))
+                     for (_, _, short, long_, _, _, doc) in options_)
+
+    for (_, _, short, long_, _, _, doc) in options_:
+        ops = get_front_str(short, long_)
+        # TODO: use console width if exists
+        min_seqs = group_len(doc, 80 - (header_len - 2))
+        min_seqs = min_seqs or ['']
+        console_output("%-*s  %s", header_len, ops, min_seqs[0])
+        for elt in itertools.islice(min_seqs, 1, len(min_seqs)):
+            console_output("%s  %s", " " * header_len, elt)
+
 def config_from_options(options, argv):
     short_options = ''.join(itertools.chain(('%s:' % s for (_, _, s, _, _, _, _) in options
                                              if s is not None),
@@ -76,67 +135,11 @@ def config_from_options(options, argv):
                     if l is not None]
     long_options.extend(['help', 'config='])
 
-    def usage(err=''):
-        if err:
-            console_output(err)
-
-        console_output("""Usage: %s %s [OPTION]
-Run the dropbox_wsgi HTTP server.
-""", sys.executable, argv[0])
-
-        def get_front_str(short, long_):
-            if (short is not None and
-                long_ is not None):
-                return "-%s, --%s=ARG" % (short, long_)
-            elif (short is None and
-                  long_ is not None):
-                return "--%s=ARG" % long_
-            elif (long_ is None and
-                  short_ is not None):
-                return "-%s" % short
-
-        def group_len(seq, len_):
-            word_index = 0
-            words = seq.split()
-            toret = []
-            while word_index < len(words):
-                new_words = [words[word_index]]
-                cur_len = len(new_words[-1])
-                word_index += 1
-
-                while word_index < len(words) and cur_len + len(new_words) - 1 < len_:
-                    new_words.append(words[word_index])
-                    cur_len += len(new_words[-1])
-                    word_index += 1
-
-                toret.append(' '.join(new_words))
-
-            return toret
-
-        options_ = sorted(itertools.chain(options,
-                                          [(None, None, 'h', 'help', None, None,
-                                            'display this message and exit'),
-                                           (None, None, 'c', 'config', None, None,
-                                            'run with config ARG')]),
-                          key=lambda x: (x[2] is None, x[2], x[3]))
-
-        header_len = max(len(get_front_str(short, long_))
-                         for (_, _, short, long_, _, _, doc) in options_)
-
-        for (_, _, short, long_, _, _, doc) in options_:
-            ops = get_front_str(short, long_)
-            # TODO: use console width if exists
-            min_seqs = group_len(doc, 80 - (header_len - 2))
-            min_seqs = min_seqs or ['']
-            console_output("%-*s  %s", header_len, ops, min_seqs[0])
-            for elt in itertools.islice(min_seqs, 1, len(min_seqs)):
-                console_output("%s  %s", " " * header_len, elt)
-
     try:
         opts, args = getopt.getopt(argv[1:], short_options, long_options)
     except getopt.GetoptError, err:
         # print help information and exit
-        usage(str(err))
+        usage(options, str(err))
         raise SystemExit()
 
     config = dict((k, d) for (k, _, _, _, _, d, _) in options)
@@ -170,7 +173,7 @@ Run the dropbox_wsgi HTTP server.
         try:
             dispatch[o](a)
         except Exception, e:
-            usage(str(e))
+            usage(options, err=str(e), argv=argv)
             raise SystemExit()
 
     config_object.read(read_from)
@@ -295,6 +298,10 @@ def main(argv=None):
 
     # generate config object, backends to options then file
     logging.basicConfig(level=config['log_level'])
+
+    if config['http_root'] is None:
+        usage(options, err="Error: Must specify http-root!", argv=argv)
+        return 3
 
     app = make_app(config, FileSystemCredStorage(config['app_dir']))
 

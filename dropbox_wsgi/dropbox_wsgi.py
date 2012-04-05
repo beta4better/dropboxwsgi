@@ -48,6 +48,7 @@ import dropbox
 
 from dropbox.rest import ErrorResponse
 
+from .six import b, r
 from ._version import __version__
 
 # TODO: Range Requests (need to extend Dropbox SDK)
@@ -56,22 +57,6 @@ from ._version import __version__
 
 logger = logging.getLogger(__name__)
 
-def u(lit):
-    if sys.version_info >= (3,):
-        return lit
-    else:
-        return lit.decode('latin1')
-
-def b(lit):
-    if sys.version_info >= (3,):
-        return lit.encode('latin1')
-    else:
-        return lit
-
-def uri_encode(path):
-    # XXX: this is wrong
-    return path
-
 def tz_offset(tz_string):
     factor = 1 if tz_string[0] == '+' else -1
     hours = 3600 * int(tz_string[1:3])
@@ -79,8 +64,8 @@ def tz_offset(tz_string):
     return factor * (hours + minutes)
 
 def dropbox_date_to_posix(date_string):
-    fmt_date, tz = date_string.rsplit(u' ', 1)
-    ts = calendar.timegm(time.strptime(fmt_date, u"%a, %d %b %Y %H:%M:%S"))
+    fmt_date, tz = date_string.rsplit(' ', 1)
+    ts = calendar.timegm(time.strptime(fmt_date, "%a, %d %b %Y %H:%M:%S"))
     return ts + tz_offset(tz)
 
 def posix_to_http_date(ts=None):
@@ -221,7 +206,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
         yield (u'<td class="n"><a href="%s%s">%s</a>%s</td>\n'
                % (path, trail, name, trail)).encode('utf8')
         yield (u'<td class="m">%s</td>\n'
-               % time.strftime(u"%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(entry['modified'])))).encode('utf8')
+               % time.strftime(u"%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(r(entry['modified']))))).encode('utf8')
         yield (u'<td class="s">%s</td>\n'
                % (u'- &nbsp;'
                   if entry['is_dir'] else
@@ -380,12 +365,12 @@ def make_app(config, impl):
 
             if path[-1] != u"/":
                 start_response('301 MOVED PERMANENTLY',
-                               [('Location', '%s%s/' % (http_root, uri_encode(path))),
+                               [('Location', '%s%s/' % (http_root, urllib.quote(r(path, enc='utf8')))),
                                 ('Content-Type', 'text/plain'),
                                 ('Content-Length', '0')])
                 return []
 
-            current_etag = u('"d%s"') % md['hash']
+            current_etag = r(u'"d%s"' % md['hash'])
             # we don't set a modified date for directories
             # because md['modified'] applies to the directory entry
             # itself in the dropbox api, not addition or removal of children
@@ -399,11 +384,11 @@ def make_app(config, impl):
 
             toret = directory_response
         else:
-            current_etag = u('"_%s"') % md['rev']
-            current_modified_date = dropbox_date_to_posix(md['modified'])
+            current_etag = r(u'"_%s"' % md['rev'])
+            current_modified_date = dropbox_date_to_posix(r(md['modified']))
             def file_response(environ, start_response):
                 last_modified_date = posix_to_http_date(current_modified_date)
-                start_response('200 OK', [('Content-Type', md['mime_type']),
+                start_response('200 OK', [('Content-Type', r(md['mime_type'])),
                                           ('Cache-Control', 'public, no-cache'),
                                           ('Content-Length', str(md['bytes'])),
                                           ('ETag', current_etag),
