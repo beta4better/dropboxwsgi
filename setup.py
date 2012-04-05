@@ -43,7 +43,7 @@ def get_version():
     VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
     mo = re.search(VSRE, verstrline, re.M)
     if mo:
-        verstr = mo.group(1)
+        return mo.group(1)
     else:
         raise RuntimeError("Unable to find version string in %s." % (VERSIONFILE,))
 
@@ -59,9 +59,11 @@ Intended Audience :: Developers
 Intended Audience :: System Administrators
 License :: OSI Approved :: MIT License
 Operating System :: OS Independent
+Programming Language :: Python
+Programming Language :: Python :: 2
+Programming Language :: Python :: 3
 Topic :: Internet :: WWW/HTTP
 Topic :: System :: Networking
-Programming Language :: Python
 Topic :: Software Development :: Libraries :: Python Modules
 """.splitlines()))
 
