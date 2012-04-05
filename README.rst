@@ -3,9 +3,8 @@ dropboxwsgi
 
 ``dropboxwsgi`` is a Python_ package that provides a WSGI_ application that
 implements an HTTP_ interface into the `Dropbox API`_. This package
-also includes a server application, also called ``dropboxwsgi``, that runs
-the WSGI application. The HTTP caching headers (ETag, Last-Modified) are
-fully supported.
+includes a server application, also called ``dropboxwsgi``, that runs
+the WSGI application from the command line.
 
 This is useful in situations where you'd like to serve a web site
 out of your Dropbox, either to the world or in a private network.
@@ -25,6 +24,16 @@ Installation
 Installation is easy and fun::
 
   $ python setup.py install
+
+Features
+--------
+
+* Supports standard HTTP caching headers (ETag, Last-Modified) and logic
+* Optional automatically generated directory listings
+* "index.html" file support
+* Caching middleware (in ``dropboxwsgi.caching``)
+* Supports Python 2.5+, 3+, PyPy
+* Automatically uses gevent if available
 
 Server Application Usage
 ------------------------
