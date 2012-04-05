@@ -1,9 +1,9 @@
-dropbox_wsgi
+dropboxwsgi
 ============
 
-``dropbox_wsgi`` is a Python_ package that provides a WSGI_ application that
+``dropboxwsgi`` is a Python_ package that provides a WSGI_ application that
 implements an HTTP_ interface into the `Dropbox API`_. This package
-also includes a server application, also called ``dropbox_wsgi``, that runs
+also includes a server application, also called ``dropboxwsgi``, that runs
 the WSGI application. The HTTP caching headers (ETag, Last-Modified) are
 fully supported.
 
@@ -29,7 +29,7 @@ Installation is easy and fun::
 Server Application Usage
 ------------------------
 
-``dropbox_wsgi`` is both a server application and a library. Let's try
+``dropboxwsgi`` is both a server application and a library. Let's try
 using it on the command line first::
 
   $ cat <<EOF > config.ini
@@ -42,7 +42,7 @@ using it on the command line first::
   http_root = http://localhost:8080
   listen = 8080
   EOF
-  $ dropbox_wsgi -c config.ini -l info
+  $ dropboxwsgi -c config.ini -l info
   Server is running; using wsgiref server
 
 Pretty simple. Now point your browser to ``http://localhost:8080/``. If
@@ -52,7 +52,7 @@ server and using nginx_ as frontend proxy.
 Library Usage
 -------------
 
-WSGI applications, like ``dropbox_wsgi``, have the benefit of being
+WSGI applications, like ``dropboxwsgi``, have the benefit of being
 able to run in a variety of server environments. `App Engine`_ and
 Heroku_ come to mind but running it on your own VPS works too. Let's
 try it using the reference WSGI implementation included with Python::
@@ -60,7 +60,7 @@ try it using the reference WSGI implementation included with Python::
   #!/usr/bin/python
 
   from wsgiref.simple_server import make_server
-  from dropbox_wsgi.dropbox_wsgi import make_app, MemoryCredStorage
+  from dropboxwsgi.dropboxwsgi import make_app, MemoryCredStorage
   
   config = dict(http_root="http://localhost:8080",
                 consumer_key="<your dropbox api key",
@@ -81,9 +81,9 @@ Extensibility
 
 If I haven't stressed it already enough quite yet, let me try once more.
 There are dozens of middleware packages available for WSGI and even more
-proxy servers that speak HTTP. Extending ``dropbox_wsgi`` is simply a
+proxy servers that speak HTTP. Extending ``dropboxwsgi`` is simply a
 matter of hooking things together. Do you want a caching Dropbox-backed
-server with HTTP auth? Squid_ + nginx + ``dropbox_wsgi`` solves your
+server with HTTP auth? Squid_ + nginx + ``dropboxwsgi`` solves your
 problem. The possibilities are endless!
 
 Copyright Stuff

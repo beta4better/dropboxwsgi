@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# This file is part of dropbox_wsgi.
+# This file is part of dropboxwsgi.
 #
 # Copyright (c) Dropbox, Inc.
 #
@@ -52,7 +52,7 @@ try:
 except ImportError:
     pywsgi = None
 
-from .dropbox_wsgi import make_app, FileSystemCredStorage
+from .dropboxwsgi import make_app, FileSystemCredStorage
 from .caching import make_caching, FileSystemCache
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def usage(options, err='', argv=None):
         console_output(err)
 
     console_output("""Usage: %s %s [OPTION]
-Run the dropbox_wsgi HTTP server.
+Run the dropboxwsgi HTTP server.
 """, sys.executable, argv[0])
 
     def get_front_str(short, long_):

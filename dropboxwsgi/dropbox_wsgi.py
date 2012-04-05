@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# This file is part of dropbox_wsgi.
+# This file is part of dropboxwsgi.
 #
 # Copyright (c) Dropbox, Inc.
 #
@@ -233,7 +233,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
     toyield = ('''</tbody>
 </table>
 </div>
-<div class="foot">dropbox_wsgi/%(version)s%(server_software)s</div>
+<div class="foot">dropboxwsgi/%(version)s%(server_software)s</div>
 </body>
 </html>''' % dict(version=__version__, server_software=ss))
     if sys.version_info >= (3,):

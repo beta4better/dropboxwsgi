@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# This file is part of dropbox_wsgi.
+# This file is part of dropboxwsgi.
 #
 # Copyright (c) Dropbox, Inc.
 #
@@ -26,4 +26,4 @@ from __future__ import absolute_import
 
 from ._version import __version__
 
-from . import dropbox_wsgi, caching, main
+from . import dropboxwsgi, caching, main

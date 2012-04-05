@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# This file is part of dropbox_wsgi.
+# This file is part of dropboxwsgi.
 #
 # Copyright (c) Dropbox, Inc.
 #

@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# This file is part of dropbox_wsgi.
+# This file is part of dropboxwsgi.
 #
 # Copyright (c) Dropbox, Inc.
 #
@@ -38,7 +38,7 @@ def get_long_description():
         return f.read()
 
 def get_version():
-    VERSIONFILE = os.path.join(PARENT_DIR, 'dropbox_wsgi', '_version.py')
+    VERSIONFILE = os.path.join(PARENT_DIR, 'dropboxwsgi', '_version.py')
     verstrline = open(VERSIONFILE, "rt").read()
     VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
     mo = re.search(VSRE, verstrline, re.M)
@@ -47,7 +47,7 @@ def get_version():
     else:
         raise RuntimeError("Unable to find version string in %s." % (VERSIONFILE,))
 
-PACKAGE_NAME = "dropbox_wsgi"
+PACKAGE_NAME = "dropboxwsgi"
 VERSION = get_version()
 LONG_DESCRIPTION = get_long_description()
 DESCRIPTION = "WSGI-compatible HTTP interface to Dropbox"
@@ -90,13 +90,13 @@ setup(
     keywords=KEYWORDS,
     classifiers=CLASSIFIERS,
     long_description=LONG_DESCRIPTION,
-    url="https://github.com/rianhunter/dropbox_wsgi",
+    url="https://github.com/rianhunter/dropboxwsgi",
     author="Rian Hunter",
     author_email="rian@alum.mit.edu",
-    packages=['dropbox_wsgi'],
+    packages=['dropboxwsgi'],
     entry_points={
         'console_scripts': [
-            'dropbox_wsgi = dropbox_wsgi.main:main'
+            'dropboxwsgi = dropboxwsgi.main:main'
             ]
         },
     test_suite=TEST_SUITE,
