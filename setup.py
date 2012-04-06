@@ -99,6 +99,7 @@ setup(
             'dropboxwsgi = dropboxwsgi.main:main'
             ]
         },
+    install_requires=['dropbox'],
     test_suite=TEST_SUITE,
     license="MIT License",
     **extra
