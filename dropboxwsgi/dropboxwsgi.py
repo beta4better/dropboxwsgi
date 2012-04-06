@@ -224,7 +224,7 @@ div.foot { font: 90%% monospace; color: #787878; padding-top: 4px;}
         trail = u"/" if entry['is_dir'] else u""
         yield b('<tr>\n')
         yield (u'<td class="n"><a href="%s%s">%s</a>%s</td>\n'
-               % (path, trail, name, trail)).encode('utf8')
+               % (name, trail, name, trail)).encode('utf8')
         yield (u'<td class="m">%s</td>\n'
                % time.strftime(u"%Y-%b-%d %H:%M:%S", time.gmtime(dropbox_date_to_posix(r(entry['modified']))))).encode('utf8')
         yield (u'<td class="s">%s</td>\n'
